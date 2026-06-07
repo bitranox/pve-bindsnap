@@ -1,0 +1,17 @@
+# editor / OS cruft
+*~
+*.swp
+*.swo
+.DS_Store
+
+# perl build/test artifacts (none expected, here for safety)
+*.bak
+blib/
+.build/
+
+# local AI-assistant context (not published)
+CLAUDE.md
+AGENTS.md
+
+# local outreach/marketing notes (not published)
+docs/extinfo.md

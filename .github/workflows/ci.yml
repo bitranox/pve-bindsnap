@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # perl, prove, shellcheck and the core modules the tests use
+      # (Test::More, File::Temp, FindBin, Digest::SHA) ship with the runner.
+      - name: Tool versions
+        run: |
+          perl --version | sed -n '2p'
+          shellcheck --version | sed -n '2p'
+
+      - name: Perl syntax check
+        run: perl -c lib/PVE/LXC/BindSnap.pm
+
+      - name: Unit tests
+        run: prove -I lib t/
+
+      - name: Shellcheck
+        run: shellcheck install.sh uninstall.sh
+
+      # shfmt is not preinstalled on the runner; fetch a pinned release binary.
+      - name: Shfmt
+        run: |
+          curl -fsSL https://github.com/mvdan/sh/releases/download/v3.10.0/shfmt_v3.10.0_linux_amd64 -o shfmt
+          chmod +x shfmt
+          ./shfmt -i 4 -d install.sh uninstall.sh
