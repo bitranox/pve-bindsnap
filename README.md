@@ -4,7 +4,7 @@ Snapshot Proxmox LXC containers that have bind-/device-mounts (`mpN` entries
 pointing at host paths). Proxmox greys those out; this overlay enables them again,
 delegating to Proxmox's genuine snapshot code rather than forking it.
 
-> Release 1.0.0. It passes the unit tests and has been exercised on Proxmox VE 9.2
+> Release 1.0.1. It passes the unit tests and has been exercised on Proxmox VE 9.2
 > (pve-container 6.1.10) across the full install lifecycle and matrix: create / rollback /
 > delete (including a data-level rollback), the `BINDSNAP-FORCE-RUNNING`, `BINDSNAP-UNSUPPORTED`
 > and `BINDSNAP-EXCLUDE` paths, each both per-snapshot and as a standing CT-Notes directive,

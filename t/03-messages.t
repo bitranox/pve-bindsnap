@@ -99,4 +99,21 @@ my $msg_running = PVE::LXC::BindSnap->can('_msg_running') or BAIL_OUT('_msg_runn
     like($m, qr/#### BINDSNAP-FORCE-RUNNING/, 'running: shows the standing Notes directive form');
 }
 
+# --- _is_pve_daemon: the routine "overlay active" load banner is gated to the PVE daemons
+#     install.sh manages (pvedaemon/pveproxy/pvestatd), so a non-PVE loader (a hookscript,
+#     the openvmm VM helper, an interactive pct) does NOT print it. Decided from $0. ---
+my $is_daemon = PVE::LXC::BindSnap->can('_is_pve_daemon') or BAIL_OUT('_is_pve_daemon missing');
+{
+    for my $name ('/usr/bin/pvedaemon', '/usr/bin/pveproxy', '/usr/bin/pvestatd',
+                  'pvedaemon worker', 'pveproxy') {
+        local $0 = $name;
+        ok($is_daemon->(), "_is_pve_daemon TRUE for '$name'");
+    }
+    for my $name ('/usr/local/bin/ovm', '/usr/sbin/pct', 'pct', '-e', 'perl',
+                  'pvedaemonX', 'mypvedaemon-helper') {
+        local $0 = $name;
+        ok(!$is_daemon->(), "_is_pve_daemon FALSE for '$name'");
+    }
+}
+
 done_testing();

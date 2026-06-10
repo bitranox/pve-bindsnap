@@ -18,6 +18,19 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.0.1] - 2026-06-10
+
+### Changed
+
+- The routine "overlay active" load banner is now restricted to the long-running PVE
+  daemons (`pvedaemon`/`pveproxy`/`pvestatd`). Because the install diverts
+  `PVE::LXC::Config`, every process that loads it used to print the banner; on a non-PVE
+  loader (a hookscript, or a third-party VM manager such as an openvmm helper) that line
+  was just noise in an unrelated log. It now prints only in the daemon journal, where it
+  confirms the overlay is live. The per-snapshot/rollback/delete summaries and all refusals
+  and `TASK WARNINGS` are unchanged, so GUI and CLI snapshots still report fully.
+- Test suite grows to 195 (from 183): coverage for the daemon-only banner gate.
+
 ## [1.0.0] - 2026-06-07
 
 Initial release.
@@ -57,4 +70,5 @@ Initial release.
   off-node wiring test that drives the redefined snapshot methods. Verified live on Proxmox
   VE 9.2 / pve-container 6.1.10 (see [docs/test-results.md](docs/test-results.md)).
 
+[1.0.1]: https://github.com/bitranox/pve-bindsnap/releases/tag/v1.0.1
 [1.0.0]: https://github.com/bitranox/pve-bindsnap/releases/tag/v1.0.0

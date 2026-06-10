@@ -14,7 +14,7 @@ use strict;
 use warnings;
 
 # =====================================================================
-# pve-bindsnap                                       (1.0.0)
+# pve-bindsnap                                       (1.0.1)
 # ---------------------------------------------------------------------
 # Lets Proxmox snapshot LXC containers that carry bind-/device-mount
 # entries (mpN pointing at host paths), by hiding every non-'volume'
@@ -78,7 +78,7 @@ use warnings;
 # alternative.
 # =====================================================================
 
-our $VERSION = '1.0.0';
+our $VERSION = '1.0.1';
 
 # Upstream files whose byte-content defines the snapshot surface we wrap.
 # foreach_volume_full + snapshot_create/delete/rollback are INHERITED from
@@ -136,13 +136,31 @@ our $CURRENT_EXCLUDES;
 # notices always print -- an admin must see them even from an interactive pct.
 sub _log { print STDERR "$TAG: $_[0]\n"; }
 
-# Journal/task-log only: emit to STDERR when it is NOT a terminal (a daemon worker or
-# the journal), but stay silent on an interactive terminal. Used for the routine load
-# banner (every `pct` runs the overlay at load -- without the gate it would print on
-# every interactive pct) and for the per-snapshot summary (which we want in the task
-# log, not spamming an interactive `pct snapshot`). die-based refusals and error _log
-# calls are unaffected -- an admin must always see those.
+# Journal/task-log only: emit to STDERR when it is NOT a terminal, but stay silent on an
+# interactive terminal. Used for the per-snapshot/rollback/delete summaries (which we want
+# in the GUI/API task log, not spamming an interactive `pct snapshot`). die-based refusals
+# and error _log calls are unaffected -- an admin must always see those. (The routine load
+# banner uses the stricter _log_banner below, which also requires a PVE daemon.)
 sub _log_journal { return if -t STDERR; _log($_[0]); }
+
+# Is THIS process one of the long-running PVE daemons install.sh manages
+# (pvedaemon/pveproxy/pvestatd)? Decided from $0 -- the daemon's script path
+# (/usr/bin/pvedaemon) or its renamed worker title ("pvedaemon worker") both carry the
+# name, bounded so a glued suffix does not match. Only the routine load banner uses this.
+# Pure (reads $0); unit-testable by localizing $0.
+sub _is_pve_daemon {
+    return (($0 // '') =~ m{(?:\A|/)(?:pvedaemon|pveproxy|pvestatd)(?![A-Za-z0-9])}) ? 1 : 0;
+}
+
+# The routine "overlay active" load banner prints once per process that loads
+# PVE::LXC::Config. Because the install DIVERTS that module, EVERY loader runs us --
+# including non-PVE tooling (hookscripts, third-party VM managers like the openvmm helper)
+# where the banner is just confusing noise in an unrelated log. Restrict it to a non-TTY
+# PVE daemon: an admin greps the daemon journal to confirm the overlay is live, and nothing
+# else sees it. The per-snapshot summaries and ALL refusals/warnings are emitted on the
+# operation (via _log_journal / _log_block / die) and are deliberately NOT gated here, so
+# GUI and CLI snapshots still report fully.
+sub _log_banner { return if -t STDERR; return unless _is_pve_daemon(); _log($_[0]); }
 
 # Print a pre-formatted multi-line block to STDERR as-is. A worker's STDERR is redirected
 # straight to the task-log file, which PRESERVES newlines -- unlike a die message, which
@@ -763,7 +781,7 @@ sub _apply {
     };
 
     $APPLIED = 1;
-    _log_journal(_load_message($checksum_known, $sum, $vlabel, $per, $bad_reason));
+    _log_banner(_load_message($checksum_known, $sum, $vlabel, $per, $bad_reason));
 }
 
 # Top-level must NEVER die: the wrapper already eval-guards loading us, and staying
