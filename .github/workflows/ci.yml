@@ -12,7 +12,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # perl, prove, shellcheck and the core modules the tests use
       # (Test::More, File::Temp, FindBin, Digest::SHA) ship with the runner.
