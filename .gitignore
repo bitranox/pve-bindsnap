@@ -15,3 +15,6 @@ AGENTS.md
 
 # local outreach/marketing notes (not published)
 docs/extinfo.md
+
+# Local, per-developer settings (Claude Code etc.) - never commit
+*.local.json
