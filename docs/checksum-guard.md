@@ -55,6 +55,44 @@ bad build always loses. Both tables are mirrored for humans on the [compatible
 versions](compatible-versions.md) page. The refusal messages print the known-good list
 and link that page, so the operator can see what to update to.
 
+## The clone guard
+
+Clone support has a **second, independent** guard, because it works differently from the
+snapshot overlay. The snapshot overlay wraps live upstream coderefs, so it stays correct
+across versions and only gates whether bind-mount snapshots are *allowed*. The clone
+override instead installs a *copy* of Proxmox's `clone_vm` body (the die it has to change
+sits inline in a closure with no seam to wrap), so running it against a changed Proxmox
+would mean running stale code. To prevent that, the clone override is **install-gated**: it
+is only put in place when the checksum matches.
+
+It hashes a single file, `/usr/share/perl5/PVE/API2/LXC.pm`, the one the copy comes from
+(its `clone_vm` is the entire coupling surface; the helpers it calls are stable named
+interfaces). The same two-table shape applies, with clone-specific tables:
+
+```perl
+my %KNOWN_GOOD_CLONE_CHECKSUMS = (
+    '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198' => '6.1.10',
+);
+```
+
+Reproduce it the same way (use `LXC.pm.distrib` if the overlay is installed):
+
+```bash
+api=/usr/share/perl5/PVE/API2/LXC.pm
+[ -e "$api.distrib" ] && api="$api.distrib"
+sha256sum "$api" | awk '{print $1}' | sha256sum | awk '{print $1}'
+```
+
+On a build that isn't in the clone known-good table, the override is **not installed** at
+all: `pct clone` keeps stock Proxmox behaviour, so a bind-mount container is refused exactly
+as it is without the overlay. There is no `BINDSNAP-UNSUPPORTED`-style override for clone,
+on purpose: the safe fallback is stock, never a stale copy. After a `pve-container` upgrade,
+the new `clone_vm` lands at the diverted `.distrib`, the next daemon start re-hashes it, the
+unrecognised hash disables the override, and clone reverts to stock until the new build is
+vetted and its hash added. To get a new build clone-supported, vet it (clone a bind-mount CT
+per the [test plan](testing.md)) and report the version and this clone hash so the
+`hash => version` line can be added.
+
 ## When a version isn't recognised
 
 After a `pve-container` upgrade that changes either file, the hash stops matching and

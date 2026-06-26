@@ -18,6 +18,40 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.1.0] - 2026-06-26
+
+### Added
+
+- Clone LXC containers that carry bind-/device-mounts, which stock Proxmox refuses with
+  `unable to clone mountpoint '<mpN>' (type bind)`. The managed volumes (rootfs and
+  `volume`-type `mpN`) clone exactly as stock; each bind/device mount is carried to the new
+  container unchanged (same host path/device). A container without bind/device mounts clones
+  stock on any build.
+- `BINDSNAP-EXCLUDE` now also drives clone: a named bind/device mount is dropped from the
+  clone instead of carried (the mirror of its snapshot behaviour, where it drops managed
+  volumes). Read from the source CT Notes, or a snapshot's frozen description for a
+  `--snapname` clone.
+- Clone loads via a second dpkg-divert, of `PVE::API2::LXC`, with its own eval-guarded
+  wrapper. The override replaces the registered `clone_vm` method's code in place (via
+  `map_method_by_name`), since it is a `register_method` closure with no named sub to wrap.
+- An independent clone checksum guard (`%KNOWN_GOOD_CLONE_CHECKSUMS` /
+  `%KNOWN_BAD_CLONE_CHECKSUMS`, sha256 of `PVE/API2/LXC.pm`), seeded with pve-container
+  6.1.10. Because the override installs a copy of `clone_vm`, it is install-gated: on an
+  unvetted build it is simply not installed and `pct clone` keeps stock behaviour (bind
+  clones refused), so there is no regression and no stale copy is ever run.
+- A clone task-log summary (cloned / carried / excluded volumes) and a `TASK WARNINGS` when
+  bind mounts are carried, noting they share the source's host paths and how to drop them.
+- Test suite grows to 221 (from 195): a clone wiring test (`t/08-clone-wiring.t`) plus the
+  clone summary/warning helpers. Verified live on Proxmox VE 9.2 / pve-container 6.1.10
+  (baseline failure reproduced, clone carry + `BINDSNAP-EXCLUDE` + version-change fallback;
+  see [docs/test-results.md](docs/test-results.md)).
+- A bundled Claude Code skill, `proxmox-bindsnap` (`skills/proxmox-bindsnap/SKILL.md`), so an LLM
+  agent can install, verify, configure and operate pve-bindsnap on a node. The repo is now also a
+  single-plugin Claude Code marketplace (`.claude-plugin/marketplace.json` + `plugin.json`,
+  `source: "."`): install via `/plugin marketplace add bitranox/pve-bindsnap` or copy
+  `skills/proxmox-bindsnap` into a skills directory. Also published in the bitranox-skills
+  marketplace. Adds `.gitattributes` (LF) and a CI JSON-manifest validation step.
+
 ## [1.0.1] - 2026-06-10
 
 ### Changed
@@ -70,5 +104,6 @@ Initial release.
   off-node wiring test that drives the redefined snapshot methods. Verified live on Proxmox
   VE 9.2 / pve-container 6.1.10 (see [docs/test-results.md](docs/test-results.md)).
 
+[1.1.0]: https://github.com/bitranox/pve-bindsnap/releases/tag/v1.1.0
 [1.0.1]: https://github.com/bitranox/pve-bindsnap/releases/tag/v1.0.1
 [1.0.0]: https://github.com/bitranox/pve-bindsnap/releases/tag/v1.0.0

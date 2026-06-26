@@ -86,6 +86,43 @@ JavaScript, nothing in the interface for a Proxmox update to clobber. Combined w
 `dpkg-divert` load (which upgrades reroute safely), the whole integration is update-safe
 by construction: nothing the overlay touches is something an upgrade overwrites.
 
+## Cloning bind-mount containers
+
+`pct clone` fails for the same reason snapshots did, but in a different place. The reject
+is an inline `die "unable to clone mountpoint '$opt' (type $mp->{type})"` inside
+`PVE::API2::LXC::clone_vm`, a different module from the diverted `PVE::LXC::Config`, and the
+clone loop walks the raw config keys rather than going through `foreach_volume_full`, so the
+snapshot filter can't reach it. The non-`volume` branch just dies; the branch right next to
+it (`# copy everything else`) already copies any other option to the new container verbatim.
+
+So the change is small: for a `rootfs`/`mpN` whose type is not `volume`, carry the entry to
+the clone unchanged (it points at the same host path/device) instead of dying, unless a
+`BINDSNAP-EXCLUDE` directive drops it. Managed volumes and the rootfs clone exactly as
+stock. A carried bind mount is not added to the clone's volume list, so the forked worker
+never tries to copy a volume for it; it simply appears in the new container's config and
+`mount_all` mounts the same host path, as it did on the source.
+
+The override mechanism differs from the snapshot one, because `clone_vm` is registered as an
+anonymous `register_method` *closure*, not a named sub: there is nothing to redefine by
+typeglob, and re-registering the same method dies on a duplicate. Instead the overlay asks
+`PVE::API2::LXC->map_method_by_name('clone_vm')` for the live method definition (the same
+shared hashref every dispatch path uses, GUI/API and `pct` alike) and replaces its `code`
+slot in place. It is loaded by a **second** `dpkg-divert`, of `PVE::API2::LXC`, with a thin
+wrapper that `require`s the genuine `.distrib` (which registers the stock `clone_vm`) and
+then calls the overlay's `apply_clone`, all under the same `perl -T` reasoning as the
+`Config` divert.
+
+One thing the clone override does that the snapshot overlay does not: it installs a *copy*
+of upstream's `clone_vm` body (with the one change), rather than wrapping live coderefs.
+That is unavoidable, because the die sits inline in a closure with no seam to wrap. It also
+makes the override version-fragile, so it has its **own** checksum guard, separate from the
+snapshot guard and hashing only `PVE/API2/LXC.pm` (the file the copy comes from). On a build
+whose `clone_vm` the copy hasn't been vetted against, the override is simply not installed:
+`clone_vm` stays stock (bind clones refused, the original behaviour), so there is never a
+regression and never a stale copy dispatched against a changed Proxmox. A `pve-container`
+upgrade reroutes to the `.distrib`, the next daemon start re-hashes it, and an unrecognised
+hash disables the override automatically. See [the checksum guard](checksum-guard.md).
+
 ## What it deliberately doesn't do
 
 There are real limits here. None of them are bugs, but you should know about them
@@ -121,8 +158,9 @@ snapshot.
 ## Repo layout
 
 ```
-lib/PVE/LXC/BindSnap.pm   the overlay module (installed to /usr/local/lib/site_perl)
-lib/PVE/LXC/Config.wrapper.pm    the thin wrapper (installed as /usr/share/perl5/PVE/LXC/Config.pm)
+lib/PVE/LXC/BindSnap.pm          the overlay module (installed to /usr/local/lib/site_perl)
+lib/PVE/LXC/Config.wrapper.pm    snapshot wrapper (installed as /usr/share/perl5/PVE/LXC/Config.pm)
+lib/PVE/API2/LXC.wrapper.pm      clone wrapper (installed as /usr/share/perl5/PVE/API2/LXC.pm)
 install.sh / uninstall.sh        helpers (read them first)
 t/                               unit tests (no Proxmox needed)
 docs/                            this and the other guides

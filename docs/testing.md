@@ -3,8 +3,8 @@
 ## On a node
 
 After `install.sh`, the GUI, the API, and `pct` all go through the overlay (it diverts
-`PVE::LXC::Config`, so every process that loads it is covered). Run the whole check
-with plain `pct`:
+`PVE::LXC::Config` for snapshots and `PVE::API2::LXC` for clone, so every process that
+loads them is covered). Run the whole check with plain `pct`:
 
 ```bash
 # 1. baseline: snapshot a STOPPED bind-mount container
@@ -64,6 +64,23 @@ pct rollback <vmid> excl1                                 # still rolls back roo
 pct stop <vmid>
 pct snapshot <vmid> nope3                                 # expect: "on the overlay's known-BAD list ... BLOCKED"
 pct snapshot <vmid> nope4 --description "BINDSNAP-UNSUPPORTED"     # STILL blocked -- the deny-list is not overridable
+
+# 9. clone a bind-mount container (needs the clone checksum in %KNOWN_GOOD_CLONE_CHECKSUMS).
+#    Stock Proxmox refuses this; the overlay carries the bind mounts to the clone.
+pct stop <vmid>
+pct clone <vmid> <newid> --hostname clone-test            # proceeds; task Output shows the
+                                                          # clone summary + a "carried ..." WARN
+pct config <newid> | grep -E 'rootfs|mp'                  # rootfs = a NEW subvol-<newid>; bind mpN carried (same host path)
+# 9b. BINDSNAP-EXCLUDE drops a bind mount from the clone (note: for CLONE it drops bind/device
+#     mounts, the mirror of snapshot where it drops managed volumes):
+pct set <vmid> --description "$(printf 'notes\n#### BINDSNAP-EXCLUDE: mp0')"
+pct clone <vmid> <newid2> --hostname clone-excl           # mp0 dropped from the clone
+pct config <newid2> | grep -E 'mp0' || echo "mp0 correctly absent from the clone"
+pct set <vmid> --description "original notes"              # restore
+pct destroy <newid>; pct destroy <newid2>                 # cleanup the test clones
+# 9c. on an UNTESTED build the override is not installed: pct clone falls back to the stock
+#     die ("unable to clone mountpoint ... type bind"), i.e. no regression. Rehearse it by
+#     commenting out the %KNOWN_GOOD_CLONE_CHECKSUMS entry and reinstalling.
 ```
 
 The refusal messages are worth a read in the task **Output** (GUI) or `pct`'s output: the
@@ -90,12 +107,15 @@ the snapshot dialog's Name or Description field. And check that routine commands
 
 The pure logic (the checksum combine, the keyword matching, the BINDSNAP-EXCLUDE directive
 parsing, the bind/device-mount detection, the refusal messages, and the status lines) has
-unit tests that run anywhere, plus a wiring test (`t/07-apply-wiring.t`) that stubs the
-PVE method surface and drives the redefined snapshot methods + the bind/exclude filter
-off-node. No Proxmox required:
+unit tests that run anywhere, plus a snapshot wiring test (`t/07-apply-wiring.t`) that
+stubs the PVE method surface and drives the redefined snapshot methods + the bind/exclude
+filter off-node, and a clone wiring test (`t/08-clone-wiring.t`) covering the carry/exclude
+decision, the `apply_clone` checksum gate, and the `map_method_by_name` override mechanism.
+No Proxmox required:
 
 ```bash
-perl -c lib/PVE/LXC/BindSnap.pm   # syntax
+perl -c lib/PVE/LXC/BindSnap.pm          # syntax (overlay)
+perl -c lib/PVE/API2/LXC.wrapper.pm      # syntax (clone wrapper)
 prove -I lib t/                          # unit tests
 shellcheck install.sh uninstall.sh       # scripts
 shfmt -i 4 -d install.sh uninstall.sh    # script formatting

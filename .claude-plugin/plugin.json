@@ -1,0 +1,11 @@
+{
+  "name": "pve-bindsnap",
+  "description": "Snapshot and clone Proxmox LXC containers that have bind/device mounts. Ships the proxmox-bindsnap skill: install, verify, configure (BINDSNAP- markers, checksum guard) and operate pve-bindsnap.",
+  "version": "1.1.0",
+  "author": {
+    "name": "bitranox"
+  },
+  "homepage": "https://github.com/bitranox/pve-bindsnap",
+  "repository": "https://github.com/bitranox/pve-bindsnap",
+  "license": "AGPL-3.0-or-later"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "pve-bindsnap",
+  "owner": {
+    "name": "bitranox"
+  },
+  "metadata": {
+    "description": "pve-bindsnap delivered as a single Claude Code plugin: a skill to install, configure and operate pve-bindsnap (snapshot and clone Proxmox LXC containers with bind/device mounts)."
+  },
+  "plugins": [
+    {
+      "name": "pve-bindsnap",
+      "source": ".",
+      "description": "Install, verify, configure and operate pve-bindsnap on a Proxmox VE node: snapshot and clone LXC containers that have bind/device mounts."
+    }
+  ]
+}

@@ -1,15 +1,18 @@
 # pve-bindsnap
 
-Snapshot Proxmox LXC containers that have bind-/device-mounts (`mpN` entries
-pointing at host paths). Proxmox greys those out; this overlay enables them again,
-delegating to Proxmox's genuine snapshot code rather than forking it.
+Snapshot **and clone** Proxmox LXC containers that have bind-/device-mounts (`mpN`
+entries pointing at host paths). Proxmox greys snapshots out and refuses the clone; this
+overlay enables both again, delegating to Proxmox's genuine snapshot and clone code
+rather than forking it.
 
-> Release 1.0.1. It passes the unit tests and has been exercised on Proxmox VE 9.2
+> Release 1.1.0. It passes the unit tests and has been exercised on Proxmox VE 9.2 / 9.3
 > (pve-container 6.1.10) across the full install lifecycle and matrix: create / rollback /
 > delete (including a data-level rollback), the `BINDSNAP-FORCE-RUNNING`, `BINDSNAP-UNSUPPORTED`
 > and `BINDSNAP-EXCLUDE` paths, each both per-snapshot and as a standing CT-Notes directive,
-> plus the known-bad hard block, and it runs in the author's own production cluster. It
-> hasn't been run against other pve-container versions yet,
+> plus the known-bad hard block, and it runs in the author's own production cluster.
+> `pct clone` of a bind-mount container is covered too (the binds are carried to the clone,
+> `BINDSNAP-EXCLUDE` drops them), gated by its own checksum so an untested build falls back
+> to stock. It hasn't been run against other pve-container versions yet,
 > so on a build it doesn't recognise it refuses by default until you opt in. It's a small,
 > commented overlay: read the source and the [test plan](docs/testing.md) before you deploy.
 >
@@ -33,17 +36,32 @@ from that path. Your Proxmox-managed volumes are still snapshotted exactly as th
 would be normally; only the bind/device mounts are skipped, and their data on the host
 is left untouched.
 
-| What's in the container config  | In the snapshot?         | Notes                               |
-|---------------------------------|--------------------------|-------------------------------------|
-| `rootfs` (the root disk)        | **Yes**                  | Proxmox-managed volume; always kept |
-| `mpN`: a storage volume         | **Yes**, unless excluded | Managed volume (e.g. a data disk)   |
-| `mpN`: a bind mount (host path) | **No**                   | Host data, left untouched           |
-| `devN`: a passthrough device    | **No**                   | Not a managed volume                |
+| What's in the container config  | In the snapshot?         | In a clone?                  | Notes                                                                                                                                         |
+|---------------------------------|--------------------------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| `rootfs` (the root disk)        | **Yes**                  | **Yes** (copied)             | Proxmox-managed volume; always kept                                                                                                           |
+| `mpN`: a storage volume         | **Yes**, unless excluded | **Yes** (copied)             | Managed volume (e.g. a data disk)                                                                                                             |
+| `mpN`: a bind mount (host path) | **No** (setting kept)    | **Carried**, unless excluded | Only the mount *setting* is snapshotted/cloned and restored on rollback;<br>the host *data* is never snapshotted, cloned, or rolled back      |
+| `devN`: a passthrough device    | **No** (setting kept)    | **Carried**                  | Only the mount *setting* is snapshotted/cloned and restored on rollback;<br>the host device/data is never snapshotted, cloned, or rolled back |
 
 So a storage-backed data disk on `mp1` is captured right alongside the rootfs, while a
 `/mnt/...` bind mount stays out of the snapshot, even if the path behind it happens to
 sit on ZFS. Everything else Proxmox does carries on unchanged, backups (`vzdump`)
 included.
+
+A snapshot never *drops* a bind/device mount. Only the mount *setting* (the `mpN`/`devN` line
+in the config) is stored in the snapshot and restored on rollback -- the overlay just hides it
+from the volume-snapshot step so Proxmox doesn't try to snapshot a host path. The *data* behind
+the bind is never snapshotted, cloned, or rolled back: a rollback rewinds the managed volumes
+(rootfs and `volume` disks), but the host data behind a bind/device mount stays exactly as it is
+now, untouched. So the outcome for the mount is the same either way -- snapshot and rollback, or
+clone, both restore/carry the *setting* pointing at the live host path; only the managed volumes
+are ever copied or rewound, never the bind data.
+
+A clone is the mirror image: the managed volumes are copied to the new container, and each
+bind/device mount is carried to it pointing at the same host path (not copied), unless you
+drop it. Note `unless excluded` flips sides between the columns: `BINDSNAP-EXCLUDE` drops a
+managed volume from a *snapshot*, and a bind/device mount from a *clone*. See
+[Cloning a bind-mount container](#cloning-a-bind-mount-container).
 
 If you only want the rootfs snapshot and don't care about seeing it in the GUI, you
 don't need any of this: `zfs snapshot` on the stopped container gives you the same
@@ -69,11 +87,12 @@ git clone https://github.com/bitranox/pve-bindsnap
 cd pve-bindsnap && less install.sh && ./install.sh
 ```
 
-Either way, `install.sh` installs the overlay module, diverts `PVE::LXC::Config` and
-puts a thin wrapper in its place (the genuine upstream is preserved alongside it),
-verifies it loads, then restarts the PVE daemons and prints the activation line. If
-the verification fails it rolls back and leaves the node untouched. Re-running it is
-safe (idempotent). Removing it is the same one line with `uninstall.sh`:
+Either way, `install.sh` installs the overlay module, diverts `PVE::LXC::Config` (for
+snapshots) and `PVE::API2::LXC` (for clone) and puts a thin wrapper in place of each (the
+genuine upstream is preserved alongside it), verifies both load, then restarts the PVE
+daemons and prints the activation line. If any verification fails it rolls back both and
+leaves the node untouched. Re-running it is safe (idempotent). Removing it is the same one
+line with `uninstall.sh`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/uninstall.sh | bash
@@ -199,12 +218,81 @@ The GUI, the API, and every `pct` invocation are all covered: the overlay rides 
 the `PVE::LXC::Config` module, so every process that loads it gets it. The [design
 notes](docs/design.md) explain how.
 
-Every snapshot, rollback and delete **task log** (the GUI task "Output", or `pct`'s task
-output) carries a short overlay summary instead of a bare `TASK OK`. For a snapshot:
+Every snapshot, rollback, delete and clone **task log** (the GUI task "Output", or `pct`'s
+task output) carries a short overlay summary instead of a bare `TASK OK`. For a snapshot:
 which volumes were kept, excluded or skipped, the checksum status, and the
 BINDSNAP-FORCE-RUNNING/BINDSNAP-UNSUPPORTED status, each briefly explained. For a rollback or delete: which
-volumes were reverted/removed and which were left as-is (excluded from that snapshot).
-It's task-log only, so it never clutters an interactive `pct`.
+volumes were reverted/removed and which were left as-is (excluded from that snapshot). For
+a clone: which volumes were cloned, which bind/device mounts were carried, and which
+`BINDSNAP-EXCLUDE` dropped. It's task-log only, so it never clutters an interactive `pct`.
+
+## Cloning a bind-mount container
+
+Proxmox refuses to clone a container that has a bind/device mount: `pct clone` (and the GUI
+"Clone") stop with `unable to clone mountpoint 'mp0' (type bind)`. The overlay lifts that
+too. The managed volumes (rootfs and any storage-backed `mpN`) are cloned exactly as stock
+does; each bind/device mount is **carried to the clone unchanged**, pointing at the same
+host path as the source. Nothing about the host data is copied or moved.
+
+```bash
+pct clone 123 124 --hostname web-staging
+```
+
+Because a carried bind mount is the *same* host path, the clone and the source now share
+that data. That is the right default for a passthrough device, but usually wrong for a data
+directory you wanted the clone to leave alone (the motivating case: cloning a webserver CT
+whose copy must not inherit the live data mount). So when a clone carries a bind mount the
+task finishes as a yellow **`TASK WARNINGS`** with a `WARN` line naming the carried mounts
+and the directive to drop them.
+
+To leave a bind/device mount out of clones, add a `BINDSNAP-EXCLUDE` line to the **source**
+container's Notes, the same directive used for snapshots:
+
+```
+#### BINDSNAP-EXCLUDE: mp0
+```
+
+An excluded mount is dropped from the clone instead of carried. (`BINDSNAP-EXCLUDE` only
+drops bind/device mounts from a clone; a managed `mpN` volume is always cloned, since for a
+clone there is a real volume to copy.) Cloning a container without bind/device mounts is
+completely stock, on any version.
+
+A note on running containers and snapshots: Proxmox already requires `--snapname` to fully
+clone a *running* container ("Full clone of a running container is only possible from a
+snapshot"). With the snapshot overlay plus `BINDSNAP-FORCE-RUNNING` you can snapshot the
+running bind-mount CT first and then clone from that snapshot; the overlay covers that path
+too.
+
+Clone support has its **own** checksum guard, separate from the snapshot one, because it
+installs a copy of Proxmox's clone routine with the one bind-mount change. On a
+pve-container build that copy hasn't been vetted against, the clone override simply isn't
+installed and `pct clone` keeps stock behaviour (bind mounts refused), so there is never a
+regression and never a stale copy run against a changed Proxmox. The [compatible
+versions](docs/compatible-versions.md) page lists the clone-tested builds alongside the
+snapshot ones.
+
+## Use with an AI agent (Claude Code skill)
+
+This repo ships a Claude Code skill, **`proxmox-bindsnap`**, so an LLM agent can install,
+verify, configure and operate pve-bindsnap on a Proxmox node for you. Two ways to get it:
+
+- **As a plugin** (auto-discovered, one command):
+
+  ```
+  /plugin marketplace add bitranox/pve-bindsnap
+  /plugin install pve-bindsnap@pve-bindsnap
+  ```
+
+  The skill then loads on demand and invokes as `/pve-bindsnap:proxmox-bindsnap`.
+
+- **As a plain skill** (copy it in): copy the skill directory into your skills folder, e.g.
+  `cp -r skills/proxmox-bindsnap ~/.claude/skills/` (or a project's `.claude/skills/`). It then
+  invokes as `/proxmox-bindsnap`.
+
+The same skill is also published in the
+[bitranox-skills](https://github.com/bitranox/bitranox-skills) marketplace
+(`/bitranox:proxmox-bindsnap`). The skill is a self-contained runbook; it drives the same
+`install.sh` / `uninstall.sh` and `BINDSNAP-` markers documented here.
 
 ## More
 
@@ -213,6 +301,7 @@ It's task-log only, so it never clutters an interactive `pct`.
 - [Compatible versions](docs/compatible-versions.md), supported, hard-blocked, untested
 - [The checksum guard, and adding a new Proxmox version](docs/checksum-guard.md)
 - [Testing on a node, plus the local dev checks](docs/testing.md)
+- [The bundled AI-agent skill](skills/proxmox-bindsnap/SKILL.md) (`proxmox-bindsnap`)
 - [Changelog](CHANGELOG.md), and the versioning policy
 - [AI transparency](ai-transparency.md), and the [general stance](ai-stance.md) behind it
 

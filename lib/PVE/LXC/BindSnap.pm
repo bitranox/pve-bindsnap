@@ -14,11 +14,13 @@ use strict;
 use warnings;
 
 # =====================================================================
-# pve-bindsnap                                       (1.0.1)
+# pve-bindsnap                                       (1.1.0)
 # ---------------------------------------------------------------------
 # Lets Proxmox snapshot LXC containers that carry bind-/device-mount
 # entries (mpN pointing at host paths), by hiding every non-'volume'
-# mountpoint from the snapshot code path only.
+# mountpoint from the snapshot code path only. It ALSO lets `pct clone`
+# clone such containers -- see the "clone support" section lower in this
+# file (a second divert of PVE::API2::LXC, gated by its own checksum).
 #
 # WHY THIS SHAPE
 #   * LOADED VIA DIVERT. install.sh dpkg-diverts /usr/share/perl5/PVE/LXC/
@@ -78,7 +80,7 @@ use warnings;
 # alternative.
 # =====================================================================
 
-our $VERSION = '1.0.1';
+our $VERSION = '1.1.0';
 
 # Upstream files whose byte-content defines the snapshot surface we wrap.
 # foreach_volume_full + snapshot_create/delete/rollback are INHERITED from
@@ -113,6 +115,32 @@ my %KNOWN_BAD_CHECKSUMS = (
     # 'sha256...' => 'pve-container X.Y.Z: snapshot_delete corrupts bind-mount CTs',
 );
 
+# --- clone guard (separate surface from the snapshot guard above) ---------
+# `pct clone` of a bind-mount CT dies in PVE::API2::LXC::clone_vm (an inline die on a
+# non-'volume' mountpoint), a different module and code path than the diverted
+# PVE::LXC::Config. We override clone_vm by replacing a COPY of its whole method body
+# (see _clone_code) -- so the override MUST be gated by the byte-content of the file we
+# copied from. We hash ONLY PVE/API2/LXC.pm: that is the precise load-bearing surface
+# (the methods it calls -- Config->set_lock/write_config/parse_volume -- are stable
+# named interfaces). If the checksum is not known-good, we leave clone_vm stock (binds
+# stay blocked, exactly as upstream -- no regression on an untested build).
+# Recompute the manual way (must equal what the overlay logs):
+#   sha256sum /usr/share/perl5/PVE/API2/LXC.pm | awk '{print $1}' | sha256sum | awk '{print $1}'
+my @CLONE_GUARDED_FILES = (
+    'PVE/API2/LXC.pm',          # %INC key -> /usr/share/perl5/PVE/API2/LXC.pm
+);
+
+# Known-good / known-bad tables for the CLONE override, same semantics as the snapshot
+# tables: KEY = combined sha256 of @CLONE_GUARDED_FILES, VALUE = pve-container version
+# (good) or a reason (bad). Only the checksum decides; the version is a human label.
+my %KNOWN_GOOD_CLONE_CHECKSUMS = (
+    '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198' => '6.1.10',
+);
+
+my %KNOWN_BAD_CLONE_CHECKSUMS = (
+    # 'sha256...' => 'pve-container X.Y.Z: clone_vm mishandles carried bind mounts',
+);
+
 # Project + issues URLs, printed in the messages. SINGLE SOURCE: $PROJECT_URL is the
 # base (where the supported list lives and newer overlay releases are published) and the
 # issues URL is derived from it. The README refers to these generically rather than
@@ -123,6 +151,15 @@ my $COMPAT_URL        = "$PROJECT_URL/blob/main/docs/compatible-versions.md";
 
 my $TAG = 'pve-bindsnap';
 our $APPLIED = 0;     # 'our' so install.sh's pre-flight can read it
+
+# Clone-override flags ('our' so install.sh's pre-flight can read them):
+#   $CLONE_LOADED  -- apply_clone() ran to completion (the API2/LXC wrapper chain works).
+#                     The install pre-flight asserts THIS, so installing on an untested
+#                     build does not roll back (clone just stays stock there).
+#   $CLONE_APPLIED -- the clone_vm override is actually installed (checksum was known-good).
+#                     Reported in the load banner; not required by the pre-flight.
+our $CLONE_LOADED  = 0;
+our $CLONE_APPLIED = 0;
 
 # Effective per-snapshot exclude set (hashref of mpN keys), localised by
 # snapshot_create for the duration of the create call. When defined the filter uses it
@@ -782,6 +819,499 @@ sub _apply {
 
     $APPLIED = 1;
     _log_banner(_load_message($checksum_known, $sum, $vlabel, $per, $bad_reason));
+}
+
+# =====================================================================
+# clone support: override PVE::API2::LXC::clone_vm
+# ---------------------------------------------------------------------
+# clone_vm is registered as an anonymous register_method CLOSURE -- there is NO named
+# PVE::API2::LXC::clone_vm sub to typeglob-redefine, and re-registering dies on a
+# duplicate name/path. The supported override is to mutate the LIVE method definition
+# in place: PVE::API2::LXC->map_method_by_name('clone_vm') returns the shared $info
+# hashref used by every dispatch path (GUI/API and pct CLI), so replacing $info->{code}
+# overrides the dispatched code everywhere. We install a COPY of upstream's clone_vm body
+# with a single change (bind/device mountpoints carried-or-excluded instead of die), so
+# the whole thing is gated by the @CLONE_GUARDED_FILES checksum.
+# =====================================================================
+
+# Pure decision helper, factored out of _clone_code so the carry/exclude rule is
+# unit-testable off-node (the full closure needs the live PVE stack). Given a config
+# option, its parsed mountpoint type, and the effective BINDSNAP-EXCLUDE set, classify
+# what clone_vm does with it:
+#   'clone-volume' -- a managed (type 'volume') rootfs/mpN: stock clone of the volume
+#   'exclude'      -- a bind/device mpN named in BINDSNAP-EXCLUDE: dropped from the clone
+#   'carry'        -- any other bind/device rootfs/mpN: carried to the clone unchanged
+#   'copy-other'   -- not a mountpoint (netN, hostname, ...): upstream copies it as-is
+# rootfs is never in the exclude set (_snap_excludes only yields mpN keys), so a rootfs
+# can only ever be 'clone-volume' or 'carry'.
+sub _clone_disposition {
+    my ($opt, $type, $excl) = @_;
+    $excl //= {};
+    if (($opt eq 'rootfs') || ($opt =~ m/^mp\d+$/)) {
+        return 'clone-volume' if defined($type) && $type eq 'volume';
+        return 'exclude' if $excl->{$opt};
+        return 'carry';
+    }
+    return 'copy-other';
+}
+
+# Task-log summary for a clone, parity with _snapshot_summary: a multi-line block printed
+# into the 'vzclone' worker's task log (newlines preserved). Reports the managed volumes
+# cloned, the bind/device mounts carried (same host path), and the ones BINDSNAP-EXCLUDE
+# dropped. Pure; unit-testable.
+sub _clone_summary {
+    my (%c) = @_;
+    my $vlabel   = $c{vlabel} // 'unknown';
+    my @cloned   = @{ $c{cloned}   // [] };
+    my @carried  = @{ $c{carried}  // [] };
+    my @excluded = @{ $c{excluded} // [] };
+    my $is_bind  = (@carried || @excluded) ? 1 : 0;
+
+    my @lines;
+    push @lines, $is_bind
+        ? "clone of CT $c{vmid} -> $c{newid} (bind-mount container)"
+        : "clone of CT $c{vmid} -> $c{newid} (no bind/device mounts -- stock clone, overlay made no change)";
+
+    my $vols = "cloned " . (join(', ', @cloned) || 'nothing');
+    $vols .= "; carried " . join(', ', @carried) . " (bind/device, same host path as source)" if @carried;
+    $vols .= "; excluded " . join(', ', @excluded) . " (BINDSNAP-EXCLUDE)" if @excluded;
+    push @lines, _wrap_kv("  volumes               : ", $vols);
+    push @lines, _wrap_kv("  checksum              : ", "validated -- pve-container $vlabel is in the clone tested set");
+
+    return join("\n", @lines) . "\n";
+}
+
+# The carried-bind warning (parity with the snapshot _task_warn nudges). Carrying a bind/
+# device mount to a clone references the SAME host path as the source -- it is NOT copied,
+# so both CTs now share that data. Worth a yellow TASK WARNING so the operator notices (the
+# real 53000->53001 case: a cloned webserver must not inherit the data mount). Returns ''
+# when nothing was carried. Pure; unit-testable.
+sub _clone_carry_warning {
+    my ($carried) = @_;
+    my @c = @{ $carried // [] };
+    return '' unless @c;
+    return "$TAG: clone carried bind/device mount(s) " . join(', ', @c) . " to the new CT.\n"
+         . "  They point at the SAME host path(s) as the source, NOT a copy -- both CTs now\n"
+         . "  share that data. To drop a data mount from clones, add a standing directive to\n"
+         . "  the SOURCE CT's Notes:\n"
+         . "    #### BINDSNAP-EXCLUDE: " . join(' ', @c) . "\n";
+}
+
+# Return a coderef to install as clone_vm's {code}. This is a copy of upstream's clone_vm
+# body (pve-container 6.1.10, PVE/API2/LXC.pm) with three marked "pve-bindsnap" changes:
+#   1. compute the effective BINDSNAP-EXCLUDE set from the source/snapshot description, and
+#      collect the carried/excluded bind mounts for the task-log summary.
+#   2. the non-'volume' branch carries the entry to the new CT (or drops it if excluded)
+#      instead of `die "unable to clone mountpoint ..."`.
+#   3. the 'vzclone' worker prints a task-log summary and warns when binds were carried.
+# Imported-sub calls from the original (only extract_param) are fully qualified here, since
+# this body runs in package PVE::LXC::BindSnap which does not import them. Because it is a
+# whole-method copy it is only installed on a checksum-validated build (see apply_clone);
+# $vlabel is the pve-container version label, baked in for the summary.
+sub _clone_code {
+    my ($vlabel) = @_;
+    return sub {
+        my ($param) = @_;
+
+        my $rpcenv = PVE::RPCEnvironment::get();
+        my $authuser = $rpcenv->get_user();
+
+        my $node = PVE::Tools::extract_param($param, 'node');
+        my $vmid = PVE::Tools::extract_param($param, 'vmid');
+        my $newid = PVE::Tools::extract_param($param, 'newid');
+        my $pool = PVE::Tools::extract_param($param, 'pool');
+        if (defined($pool)) {
+            $rpcenv->check_pool_exist($pool);
+        }
+        my $snapname = PVE::Tools::extract_param($param, 'snapname');
+        my $storage = PVE::Tools::extract_param($param, 'storage');
+        my $target = PVE::Tools::extract_param($param, 'target');
+        my $localnode = PVE::INotify::nodename();
+
+        undef $target if $target && ($target eq $localnode || $target eq 'localhost');
+
+        PVE::Cluster::check_node_exists($target) if $target;
+
+        my $storecfg = PVE::Storage::config();
+
+        if ($storage) {
+            # check if storage is enabled on local node
+            PVE::Storage::storage_check_enabled($storecfg, $storage);
+            if ($target) {
+                # check if storage is available on target node
+                PVE::Storage::storage_check_enabled($storecfg, $storage, $target);
+                # clone only works if target storage is shared
+                my $scfg = PVE::Storage::storage_config($storecfg, $storage);
+                die "can't clone to non-shared storage '$storage'\n" if !$scfg->{shared};
+            }
+        }
+
+        PVE::Cluster::check_cfs_quorum();
+
+        my $newconf = {};
+        my $mountpoints = {};
+        my $fullclone = {};
+        my $vollist = [];
+        my $running;
+        # pve-bindsnap: bind/device mounts carried/excluded, collected in the loop below and
+        # reported by $realcmd; declared in the outer scope so the worker closure sees them.
+        my (@clone_carried, @clone_excluded);
+
+        my $lock_and_reload = sub {
+            my ($vmid, $code) = @_;
+            return PVE::LXC::Config->lock_config(
+                $vmid,
+                sub {
+                    my $conf = PVE::LXC::Config->load_config($vmid);
+                    die "Lost 'create' config lock, aborting.\n"
+                        if !PVE::LXC::Config->has_lock($conf, 'create');
+
+                    return $code->($conf);
+                },
+            );
+        };
+
+        my $src_conf = PVE::LXC::Config->set_lock($vmid, 'disk');
+
+        eval { PVE::LXC::Config->create_and_lock_config($newid, 0); };
+        if (my $err = $@) {
+            eval { PVE::LXC::Config->remove_lock($vmid, 'disk') };
+            warn "Failed to remove source CT config lock - $@\n" if $@;
+
+            die $err;
+        }
+
+        eval {
+            $running = PVE::LXC::check_running($vmid) || 0;
+
+            my $full = PVE::Tools::extract_param($param, 'full');
+            if (!defined($full)) {
+                $full = !PVE::LXC::Config->is_template($src_conf);
+            }
+
+            PVE::Firewall::clone_vmfw_conf($vmid, $newid);
+
+            die "parameter 'storage' not allowed for linked clones\n"
+                if defined($storage) && !$full;
+
+            die "snapshot '$snapname' does not exist\n"
+                if $snapname && !defined($src_conf->{snapshots}->{$snapname});
+
+            my $src_conf = $snapname ? $src_conf->{snapshots}->{$snapname} : $src_conf;
+
+            # pve-bindsnap: effective BINDSNAP-EXCLUDE set for this clone. Read from the
+            # source CT Notes for a live clone, or the snapshot's own frozen description
+            # for a --snapname clone (both are $src_conf->{description} at this scope).
+            # @clone_carried / @clone_excluded (declared in the outer scope) feed the
+            # task-log summary + warning below.
+            my $clone_excl = _snap_excludes($src_conf->{description}) // {};
+
+            my $sharedvm = 1;
+            for my $opt (sort keys %$src_conf) {
+                next if $opt =~ m/^unused\d+$/;
+
+                my $value = $src_conf->{$opt};
+
+                if (($opt eq 'rootfs') || ($opt =~ m/^mp\d+$/)) {
+                    my $mp = PVE::LXC::Config->parse_volume($opt, $value);
+
+                    if ($mp->{type} eq 'volume') {
+                        my $volid = $mp->{volume};
+
+                        my ($sid, $volname) = PVE::Storage::parse_volume_id($volid);
+                        $sid = $storage if defined($storage);
+                        my $scfg = PVE::Storage::storage_config($storecfg, $sid);
+                        if (!$scfg->{shared}) {
+                            $sharedvm = 0;
+                            warn "found non-shared volume: $volid\n" if $target;
+                        }
+
+                        $rpcenv->check($authuser, "/storage/$sid", ['Datastore.AllocateSpace']);
+
+                        if ($full) {
+                            if ($running && !defined($snapname)) {
+                                die "Full clone of a running container is only possible from a"
+                                    . " snapshot\n";
+                            }
+                            $fullclone->{$opt} = 1;
+                        } else {
+                            # not full means clone instead of copy
+                            die "Linked clone feature for '$volid' is not available\n"
+                                if !PVE::Storage::volume_has_feature(
+                                    $storecfg,
+                                    'clone',
+                                    $volid,
+                                    $snapname,
+                                    $running,
+                                    { 'valid_target_formats' => ['raw', 'subvol'] },
+                                );
+                        }
+
+                        $mountpoints->{$opt} = $mp;
+                        push @$vollist, $volid;
+
+                    } else {
+                        # pve-bindsnap: bind/device mountpoint has no managed volume to
+                        # clone. Carry the entry to the new CT unchanged (same host path/
+                        # device) unless a BINDSNAP-EXCLUDE directive drops it. Replaces
+                        # upstream's `die "unable to clone mountpoint ..."`. The carried
+                        # entry is NOT added to %mountpoints, so the forked realcmd never
+                        # tries to copy a volume for it.
+                        if ($clone_excl->{$opt}) { push @clone_excluded, $opt; next; }
+                        push @clone_carried, $opt;
+                        $newconf->{$opt} = $value;
+                    }
+                } elsif ($opt =~ m/^net(\d+)$/) {
+                    # always change MAC! address
+                    my $dc = PVE::Cluster::cfs_read_file('datacenter.cfg');
+                    my $net = PVE::LXC::Config->parse_lxc_network($value);
+                    $net->{hwaddr} = PVE::Tools::random_ether_addr($dc->{mac_prefix});
+                    $newconf->{$opt} = PVE::LXC::Config->print_lxc_network($net);
+
+                    PVE::LXC::check_bridge_access($rpcenv, $authuser, $newconf->{$opt});
+                } else {
+                    # copy everything else
+                    $newconf->{$opt} = $value;
+                }
+            }
+            die "can't clone CT to node '$target' (CT uses local storage)\n"
+                if $target && !$sharedvm;
+
+            # Replace the 'disk' lock with a 'create' lock.
+            $newconf->{lock} = 'create';
+
+            # delete all snapshot related config options
+            delete $newconf->@{qw(snapshots parent snaptime snapstate)};
+
+            delete $newconf->{pending};
+            delete $newconf->{template};
+
+            $newconf->{hostname} = $param->{hostname} if $param->{hostname};
+            $newconf->{description} = $param->{description} if $param->{description};
+
+            $lock_and_reload->(
+                $newid,
+                sub {
+                    PVE::LXC::Config->write_config($newid, $newconf);
+                },
+            );
+        };
+        if (my $err = $@) {
+            eval { PVE::LXC::Config->remove_lock($vmid, 'disk') };
+            warn "Failed to remove source CT config lock - $@\n" if $@;
+
+            eval {
+                $lock_and_reload->(
+                    $newid,
+                    sub {
+                        PVE::LXC::Config->destroy_config($newid);
+                        PVE::Firewall::remove_vmfw_conf($newid);
+                    },
+                );
+            };
+            warn "Failed to remove target CT config - $@\n" if $@;
+
+            die $err;
+        }
+
+        my $update_conf = sub {
+            my ($key, $value) = @_;
+            return $lock_and_reload->(
+                $newid,
+                sub {
+                    my $conf = shift;
+                    $conf->{$key} = $value;
+                    PVE::LXC::Config->write_config($newid, $conf);
+                },
+            );
+        };
+
+        my $realcmd = sub {
+            my ($upid) = @_;
+
+            my $newvollist = [];
+
+            print("creating a clone of container $vmid with ID $newid\n");
+
+            # pve-bindsnap: report what the overlay did to the 'vzclone' task log (parity
+            # with the snapshot summary), and warn if bind/device mounts were carried (they
+            # share the source's host paths). Printed in the worker so it reaches the task
+            # Output; eval-guarded so it can never affect the clone itself.
+            eval {
+                print _clone_summary(
+                    vmid => $vmid, newid => $newid, vlabel => $vlabel,
+                    cloned => [sort keys %$mountpoints],
+                    carried => \@clone_carried, excluded => \@clone_excluded,
+                );
+                _task_warn(_clone_carry_warning(\@clone_carried)) if @clone_carried;
+                1;
+            };
+
+            my $verify_running = PVE::LXC::check_running($vmid) || 0;
+            die "unexpected state change\n" if $verify_running != $running;
+
+            eval {
+                local $SIG{INT} = local $SIG{TERM} = local $SIG{QUIT} = local $SIG{HUP} =
+                    sub { die "interrupted by signal\n"; };
+
+                PVE::Storage::activate_volumes($storecfg, $vollist, $snapname);
+                my $bwlimit = PVE::Tools::extract_param($param, 'bwlimit');
+
+                foreach my $opt (keys %$mountpoints) {
+                    my $mp = $mountpoints->{$opt};
+                    my $volid = $mp->{volume};
+
+                    my $newvolid;
+                    if ($fullclone->{$opt}) {
+                        print "create full clone of mountpoint $opt ($volid)\n";
+                        my $source_storage = PVE::Storage::parse_volume_id($volid);
+                        my $target_storage = $storage // $source_storage;
+                        my $clonelimit = PVE::Storage::get_bandwidth_limit(
+                            'clone', [$source_storage, $target_storage], $bwlimit,
+                        );
+                        $newvolid = PVE::LXC::copy_volume(
+                            $mp,
+                            $newid,
+                            $target_storage,
+                            $storecfg,
+                            $newconf,
+                            $snapname,
+                            $clonelimit,
+                        );
+                    } else {
+                        print "create linked clone of mount point $opt ($volid)\n";
+                        $newvolid =
+                            PVE::Storage::vdisk_clone($storecfg, $volid, $newid, $snapname);
+                    }
+
+                    push @$newvollist, $newvolid;
+                    $mp->{volume} = $newvolid;
+
+                    $update_conf->(
+                        $opt,
+                        PVE::LXC::Config->print_ct_mountpoint($mp, $opt eq 'rootfs'),
+                    );
+                }
+
+                PVE::AccessControl::add_vm_to_pool($newid, $pool) if $pool;
+
+                $lock_and_reload->(
+                    $newid,
+                    sub {
+                        my $conf = shift;
+                        my $rootdir = PVE::LXC::mount_all($newid, $storecfg, $conf, 1);
+
+                        eval {
+                            PVE::LXC::create_ifaces_ipams_ips($conf, $newid);
+                            my $lxc_setup = PVE::LXC::Setup->new($conf, $rootdir);
+                            $lxc_setup->post_clone_hook($conf);
+                        };
+                        my $err = $@;
+                        eval { PVE::LXC::umount_all($newid, $storecfg, $conf, 1); };
+                        if ($err) {
+                            warn "$@\n" if $@;
+                            die $err;
+                        } else {
+                            die $@ if $@;
+                        }
+                    },
+                );
+            };
+            my $err = $@;
+            # Unlock the source config in any case:
+            eval { PVE::LXC::Config->remove_lock($vmid, 'disk') };
+            warn $@ if $@;
+
+            if ($err) {
+                # Now cleanup the config & disks & ipam:
+                sleep 1; # some storages like rbd need to wait before release volume - really?
+
+                foreach my $volid (@$newvollist) {
+                    eval { PVE::Storage::vdisk_free($storecfg, $volid); };
+                    warn $@ if $@;
+                }
+
+                eval {
+                    $lock_and_reload->(
+                        $newid,
+                        sub {
+                            my $conf = shift;
+                            PVE::LXC::delete_ifaces_ipams_ips($conf, $newid);
+                            PVE::LXC::Config->destroy_config($newid);
+                            PVE::Firewall::remove_vmfw_conf($newid);
+                        },
+                    );
+                };
+                warn "Failed to remove target CT config - $@\n" if $@;
+
+                die "clone failed: $err";
+            }
+
+            $lock_and_reload->(
+                $newid,
+                sub {
+                    PVE::LXC::Config->remove_lock($newid, 'create');
+
+                    if ($target) {
+                        # always deactivate volumes - avoid lvm LVs to be active on several nodes
+                        PVE::Storage::deactivate_volumes($storecfg, $vollist, $snapname)
+                            if !$running;
+                        PVE::Storage::deactivate_volumes($storecfg, $newvollist);
+
+                        PVE::LXC::Config->move_config_to_node($newid, $target);
+                    }
+                },
+            );
+
+            return;
+        };
+
+        return $rpcenv->fork_worker('vzclone', $vmid, $authuser, $realcmd);
+    };
+}
+
+# Install the clone_vm override, gated by the @CLONE_GUARDED_FILES checksum. Called by the
+# API2/LXC wrapper AFTER it has require()d the genuine upstream (which registers the stock
+# clone_vm). Idempotent and never-die-critical (the wrapper also eval-guards the call).
+sub apply_clone {
+    return if $CLONE_LOADED;
+
+    eval { require PVE::API2::LXC; 1 } or do {
+        _log("PVE::API2::LXC not loadable ($@); clone override inert");
+        return;
+    };
+
+    my ($sum, $per) = _config_checksum(map { _module_path($_) } @CLONE_GUARDED_FILES);
+    my $vlabel = _pkg_version('pve-container') // 'unknown';
+    my $checksum_known = defined($sum) && exists $KNOWN_GOOD_CLONE_CHECKSUMS{$sum};
+    my $bad_reason = (defined($sum) && exists $KNOWN_BAD_CLONE_CHECKSUMS{$sum})
+        ? $KNOWN_BAD_CLONE_CHECKSUMS{$sum} : undef;
+    my $combined = $sum // 'unavailable';
+
+    # Untested or known-bad clone_vm: do NOT install our copied method body (it could be
+    # stale against a different upstream). Leave stock clone_vm -- bind clones stay blocked
+    # exactly as upstream, no regression. CLONE_LOADED is still set (the wrapper chain works).
+    if (!$checksum_known || defined $bad_reason) {
+        my $why = defined $bad_reason ? "known-BAD ($bad_reason)" : "untested";
+        _log_banner("clone overlay loaded but NOT active: pve-container $vlabel clone_vm is "
+                  . "$why (combined sha256 $combined); bind-mount clones use stock behaviour. "
+                  . "Compatible builds: $COMPAT_URL");
+        $CLONE_LOADED = 1;
+        return;
+    }
+
+    my $info = eval { PVE::API2::LXC->map_method_by_name('clone_vm') };
+    if ($info && ref($info) eq 'HASH' && ref($info->{code}) eq 'CODE') {
+        $info->{code} = _clone_code($vlabel);    # mutate the live, shared method definition
+        $CLONE_APPLIED = 1;
+        _log_banner("clone overlay active (pve-container $vlabel, checksum-validated; "
+                  . "combined sha256 $combined): bind/device mountpoints are carried to the "
+                  . "clone (BINDSNAP-EXCLUDE drops named mpN)");
+    } else {
+        _log("clone_vm method definition not found; clone override DISABLED (stock behaviour)");
+    }
+
+    $CLONE_LOADED = 1;
 }
 
 # Top-level must NEVER die: the wrapper already eval-guards loading us, and staying

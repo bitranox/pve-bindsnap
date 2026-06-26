@@ -5,7 +5,8 @@ the latest run; the test plan that produces it is in [testing.md](testing.md).
 
 ## Off the node
 
-`perl -c` clean, `prove -I lib t/` = **166 tests pass**, `shellcheck` and `shfmt` clean.
+`perl -c` clean (both `BindSnap.pm` and `API2/LXC.wrapper.pm`), `prove -I lib t/` =
+**221 tests pass**, `shellcheck` and `shfmt` clean.
 The unit tests cover the pure logic: the checksum combine (it reproduces both the
 documented `sha256sum` pipeline and the real value from a node), the `BINDSNAP-FORCE-RUNNING`/
 `BINDSNAP-UNSUPPORTED` matching (case-sensitive, underscore-glue tolerant, read from the
@@ -16,7 +17,10 @@ task-log summaries (including the standing-`BINDSNAP-UNSUPPORTED` risk note). A 
 (`t/07-apply-wiring.t`) stubs the PVE method surface and drives the redefined
 `snapshot_create`/`delete`/`rollback`/`has_feature` and the `_make_filter` closure
 off-node, so the typeglob wiring, the gates, and the bind/exclude filtering are covered
-in CI, not only on a live node.
+in CI, not only on a live node. A clone wiring test (`t/08-clone-wiring.t`) covers the
+pure carry/exclude decision (`_clone_disposition`), the `apply_clone` idempotency and
+TEST-mode fall-through (no override on an unvalidated build), and the `map_method_by_name`
+override mechanism.
 
 ## On a test node
 
@@ -108,6 +112,32 @@ The captured managed volumes revert; the bind (never captured) keeps its later c
   not engage and delegated to stock. **PASS.**
 - The routine load **banner is suppressed on a TTY** (0 lines via an interactive `pct`)
   and present on the non-TTY journal path. **PASS.**
+
+## Clone support
+
+On proxmox06 (PVE 9.2, pve-container **6.1.10**; `API2/LXC.pm` combined checksum
+`8408885e...525198`, in the clone known-good table -> the clone override is **active**),
+verified the full `pct clone` matrix with a throwaway alpine CT (1G rootfs on local-zfs,
+two bind mounts: `mp0`->`/data`, `mp1`->`/extra`):
+
+- **Baseline (override not yet installed):** `pct clone` died with
+  `unable to clone mountpoint 'mp0' (type bind)` (exit 2) -- the bug. **Reproduced.**
+- After `install.sh` (second divert of `API2/LXC.pm` added; both pre-flights passed; the
+  journal banner read `clone overlay active (... checksum-validated ...)`):
+  - **Carry:** `pct clone 9001 9002` succeeded. The clone got a NEW full-clone rootfs
+    (`subvol-9002-disk-0`) and **both bind mounts carried unchanged** (same host paths).
+    **PASS.**
+  - **Boots + binds functional:** the clone runs (booted without networking, since the
+    test host lacks veth support -- the *source* CT fails to boot identically, confirming
+    that limitation is environmental, not the clone). Inside the clone, `/data/marker.txt`
+    read back the host file and `/extra` was present, so the carried binds mount. A write
+    to the clone's rootfs confirmed it is the independent cloned volume. **PASS.**
+  - **`BINDSNAP-EXCLUDE`:** with `#### BINDSNAP-EXCLUDE: mp1` in the source CT Notes,
+    `pct clone 9001 9003` carried `mp0` but **dropped `mp1`**. **PASS.**
+- The clone override is gated by its own checksum: on a non-validated build it is not
+  installed and `pct clone` keeps stock behaviour (binds rejected), so there is no
+  regression. Confirmed in-process under `perl -T`: `apply_clone` installs the override
+  only when the `API2/LXC.pm` checksum matches.
 
 ## Aftermath
 

@@ -1,0 +1,6 @@
+*.sh text eol=lf
+*.pm text eol=lf
+*.t text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+* text=auto

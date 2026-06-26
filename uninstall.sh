@@ -15,23 +15,35 @@ set -euo pipefail
 DEST_MOD="/usr/local/lib/site_perl/PVE/LXC/BindSnap.pm"
 CONFIG_PM="/usr/share/perl5/PVE/LXC/Config.pm"
 CONFIG_DISTRIB="/usr/share/perl5/PVE/LXC/Config.pm.distrib"
+API_PM="/usr/share/perl5/PVE/API2/LXC.pm"
+API_DISTRIB="/usr/share/perl5/PVE/API2/LXC.pm.distrib"
 DIVERT_TAG="pve-bindsnap"
 SERVICES=(pvedaemon pveproxy pvestatd)
 changed=0
 
-# Remove our wrapper FIRST, so reverting the divert can move .distrib back onto a
-# free path. Only touch it if it is ours.
+# Remove BOTH our wrappers FIRST, so reverting each divert can move its .distrib back
+# onto a free path. Only touch a wrapper if it is ours.
 if [ -e "$CONFIG_PM" ] && grep -q "$DIVERT_TAG" "$CONFIG_PM" 2>/dev/null; then
     rm -f "$CONFIG_PM"
     changed=1
     echo "   - removed wrapper $CONFIG_PM"
 fi
+if [ -e "$API_PM" ] && grep -q "$DIVERT_TAG" "$API_PM" 2>/dev/null; then
+    rm -f "$API_PM"
+    changed=1
+    echo "   - removed wrapper $API_PM"
+fi
 
-# Revert the divert: moves the genuine upstream from .distrib back to Config.pm.
+# Revert the diverts: move each genuine upstream from .distrib back to its real path.
 if dpkg-divert --list "$CONFIG_PM" 2>/dev/null | grep -q "by $DIVERT_TAG"; then
     dpkg-divert --remove --rename --package "$DIVERT_TAG" --divert "$CONFIG_DISTRIB" "$CONFIG_PM"
     changed=1
     echo "   - reverted divert (restored $CONFIG_PM)"
+fi
+if dpkg-divert --list "$API_PM" 2>/dev/null | grep -q "by $DIVERT_TAG"; then
+    dpkg-divert --remove --rename --package "$DIVERT_TAG" --divert "$API_DISTRIB" "$API_PM"
+    changed=1
+    echo "   - reverted divert (restored $API_PM)"
 fi
 
 if [ -f "$DEST_MOD" ]; then

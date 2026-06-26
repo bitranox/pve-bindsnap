@@ -22,10 +22,21 @@ jobs:
           shellcheck --version | sed -n '2p'
 
       - name: Perl syntax check
-        run: perl -c lib/PVE/LXC/BindSnap.pm
+        run: |
+          perl -c lib/PVE/LXC/BindSnap.pm
+          perl -c lib/PVE/API2/LXC.wrapper.pm
 
       - name: Unit tests
         run: prove -I lib t/
+
+      # The repo is also a single-plugin Claude Code marketplace shipping the
+      # proxmox-bindsnap skill. Keep the manifests valid JSON and the skill present.
+      - name: Validate plugin manifests and skill
+        run: |
+          python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
+          python3 -m json.tool .claude-plugin/plugin.json > /dev/null
+          test -f skills/proxmox-bindsnap/SKILL.md
+          head -1 skills/proxmox-bindsnap/SKILL.md | grep -qx -- '---'
 
       - name: Shellcheck
         run: shellcheck install.sh uninstall.sh

@@ -74,12 +74,36 @@ dropped by its type *before* the exclude set is consulted, so the directive simp
 nothing extra to do, and a `devN` key isn't parsed into the set at all. There is no way
 for an exclusion to break create, delete, or rollback.
 
+## In a clone (different category)
+
+The same directive also drives `pct clone`, but it acts on the **opposite** category of
+mountpoint, because clone is the mirror image of snapshot:
+
+- In a **snapshot**, bind/device mounts are always skipped by type, and `BINDSNAP-EXCLUDE`
+  additionally drops named **managed volumes**.
+- In a **clone**, managed volumes are always cloned (there is a real volume to copy), bind/
+  device mounts are **carried** to the clone by default, and `BINDSNAP-EXCLUDE` drops named
+  **bind/device** mounts so the clone doesn't inherit them.
+
+So `#### BINDSNAP-EXCLUDE: mp0` in a container's Notes means "don't capture mp0 in snapshots"
+if mp0 is a managed volume, and "don't carry mp0 into clones" if mp0 is a bind mount, the
+same intent ("leave mp0 out") applied to whichever operation runs. The motivating case is
+cloning a webserver container whose copy must not inherit the live data bind mount.
+
+For a clone, the directive is read from the **source** container's Notes (a live clone) or
+from the snapshot's frozen description (a `--snapname` clone). There is nothing to freeze
+into the clone itself: a clone is a fresh container, not a re-rollback-able snapshot. A
+clone that carries any bind/device mount also raises a `TASK WARNINGS` naming them and the
+`BINDSNAP-EXCLUDE` line that would drop them.
+
 ## What you see
 
-Each snapshot, rollback and delete writes a one-line summary to the task log (GUI task
-"Output", or `pct`'s output), e.g. `kept rootfs, mp2; excluded mp1 (BINDSNAP-EXCLUDE);
-skipped mp3 (bind/device)`, so you can confirm what went in and what was left out. It's
-task-log only and never clutters an interactive `pct`.
+Each snapshot, rollback, delete and clone writes a one-line summary to the task log (GUI
+task "Output", or `pct`'s output). For a snapshot, e.g. `kept rootfs, mp2; excluded mp1
+(BINDSNAP-EXCLUDE); skipped mp3 (bind/device)`; for a clone, e.g. `cloned rootfs; carried
+mp0 (bind/device, same host path as source); excluded mp1 (BINDSNAP-EXCLUDE)`, so you can
+confirm what went in and what was left out. It's task-log only and never clutters an
+interactive `pct`.
 
 ## Why it's built this way
 

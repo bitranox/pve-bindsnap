@@ -21,9 +21,12 @@ REPO_URL="https://github.com/bitranox/pve-bindsnap"
 # The overlay module loads from Perl's default @INC, on local root, in a
 # version-independent dir (survives perl upgrades).
 DEST_MOD="/usr/local/lib/site_perl/PVE/LXC/BindSnap.pm"
-# The module we divert, and where dpkg-divert keeps the genuine upstream.
+# The modules we divert, and where dpkg-divert keeps the genuine upstream. Two diverts:
+# Config.pm carries the snapshot overlay; API2/LXC.pm carries the clone override.
 CONFIG_PM="/usr/share/perl5/PVE/LXC/Config.pm"
 CONFIG_DISTRIB="/usr/share/perl5/PVE/LXC/Config.pm.distrib"
+API_PM="/usr/share/perl5/PVE/API2/LXC.pm"
+API_DISTRIB="/usr/share/perl5/PVE/API2/LXC.pm.distrib"
 DIVERT_TAG="pve-bindsnap"
 SERVICES=(pvedaemon pveproxy pvestatd)
 
@@ -39,9 +42,14 @@ INSTALL_OK=0
 cleanup() {
     [ -n "$tmp" ] && rm -rf "$tmp"
     if [ "$DIVERT_ACTIVE" -eq 1 ] && [ "$INSTALL_OK" -eq 0 ]; then
-        echo "!! install aborted -- rolling back; node restored to stock Config.pm." >&2
-        rm -f "$CONFIG_PM"
+        echo "!! install aborted -- rolling back; node restored to stock PVE modules." >&2
+        # Remove BOTH wrappers FIRST so reverting each divert can move .distrib back onto
+        # a free path, then revert BOTH diverts (reverting an absent one is a harmless
+        # no-op via || true), then drop the overlay module. Covers the window where only
+        # the first divert is in place too.
+        rm -f "$CONFIG_PM" "$API_PM"
         dpkg-divert --remove --rename --package "$DIVERT_TAG" --divert "$CONFIG_DISTRIB" "$CONFIG_PM" 2>/dev/null || true
+        dpkg-divert --remove --rename --package "$DIVERT_TAG" --divert "$API_DISTRIB" "$API_PM" 2>/dev/null || true
         rm -f "$DEST_MOD"
     fi
 }
@@ -59,13 +67,17 @@ if [ -z "$SRC_DIR" ] || [ ! -f "$SRC_DIR/lib/PVE/LXC/BindSnap.pm" ]; then
     curl -fsSL "$REPO_URL/archive/refs/heads/main.tar.gz" | tar -xz -C "$tmp"
     SRC_DIR="$tmp/pve-bindsnap-main"
 fi
-if [ ! -f "$SRC_DIR/lib/PVE/LXC/BindSnap.pm" ]; then
+if [ ! -f "$SRC_DIR/lib/PVE/LXC/BindSnap.pm" ] || [ ! -f "$SRC_DIR/lib/PVE/API2/LXC.wrapper.pm" ]; then
     echo "!! could not locate the overlay source (fetch failed?)" >&2
     exit 1
 fi
 
 [ -e "$CONFIG_PM" ] || {
     echo "!! $CONFIG_PM not found -- is this a Proxmox node?" >&2
+    exit 1
+}
+[ -e "$API_PM" ] || {
+    echo "!! $API_PM not found -- is this a Proxmox node?" >&2
     exit 1
 }
 
@@ -88,13 +100,38 @@ DIVERT_ACTIVE=1 # divert is in place -> any failure from here rolls back (see cl
 echo ">> installing wrapper -> $CONFIG_PM"
 install -D -m 0644 "$SRC_DIR/lib/PVE/LXC/Config.wrapper.pm" "$CONFIG_PM"
 
+echo ">> diverting $API_PM -> $API_DISTRIB"
+if dpkg-divert --list "$API_PM" 2>/dev/null | grep -q "by $DIVERT_TAG"; then
+    echo "   already diverted by us"
+else
+    dpkg-divert --add --rename --package "$DIVERT_TAG" --divert "$API_DISTRIB" "$API_PM"
+fi
+[ -e "$API_DISTRIB" ] || {
+    echo "!! divert did not produce $API_DISTRIB" >&2
+    exit 1
+}
+
+echo ">> installing wrapper -> $API_PM"
+install -D -m 0644 "$SRC_DIR/lib/PVE/API2/LXC.wrapper.pm" "$API_PM"
+
 # CRITICAL pre-flight: load PVE::LXC::Config exactly as a daemon will (default @INC,
 # wrapper -> .distrib -> overlay) and confirm the overlay applied -- BEFORE restarting
 # any daemon. On failure (here, or anywhere since the divert) the EXIT trap rolls back to
 # stock; the daemons are never touched.
 echo ">> verifying the diverted module loads and the overlay applies"
 perl -e 'require PVE::LXC::Config; exit($PVE::LXC::BindSnap::APPLIED ? 0 : 1)' >/dev/null 2>&1 || {
-    echo "!! PRE-FLIGHT FAILED -- the overlay did not apply." >&2
+    echo "!! PRE-FLIGHT FAILED -- the snapshot overlay did not apply." >&2
+    exit 1
+}
+
+# Pre-flight the clone wrapper chain too: load PVE::API2::LXC through the wrapper
+# (-> .distrib -> overlay -> apply_clone) and confirm apply_clone ran (CLONE_LOADED).
+# We assert CLONE_LOADED (the wrapper chain works), NOT CLONE_APPLIED (the override is
+# active), so installing on an UNTESTED build does not roll back -- clone simply stays
+# stock there, exactly as snapshots run in TEST mode.
+echo ">> verifying the diverted API module loads and the clone overlay ran"
+perl -e 'require PVE::API2::LXC; exit($PVE::LXC::BindSnap::CLONE_LOADED ? 0 : 1)' >/dev/null 2>&1 || {
+    echo "!! PRE-FLIGHT FAILED -- the clone overlay did not load." >&2
     exit 1
 }
 INSTALL_OK=1 # verified good -> disarm rollback; from here we only restart daemons
