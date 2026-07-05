@@ -1,13 +1,6 @@
 ---
 name: proxmox-bindsnap
-description: >-
-  Use when snapshotting or cloning Proxmox LXC containers that have bind/device
-  mounts (mpN -> host paths) - the snapshot button is greyed out, or pct clone /
-  pct snapshot fails with "unable to clone mountpoint (type bind)" or cannot
-  snapshot a bind-mount container. Covers installing, verifying, configuring
-  (BINDSNAP-FORCE-RUNNING, BINDSNAP-UNSUPPORTED, BINDSNAP-EXCLUDE), the checksum
-  guard / untested pve-container build, cloning, and uninstalling pve-bindsnap on
-  a Proxmox VE node.
+description: Use when snapshotting or cloning Proxmox LXC containers that have bind/device mounts (mpN -> host paths) - the snapshot button is greyed out, or pct clone / pct snapshot fails with "unable to clone mountpoint (type bind)", or you cannot snapshot a bind-mount container. Covers pve-bindsnap install, verify, the BINDSNAP-FORCE-RUNNING / BINDSNAP-UNSUPPORTED / BINDSNAP-EXCLUDE markers, the checksum guard for an untested pve-container build, clone, and uninstall on a Proxmox VE node.
 ---
 
 # proxmox-bindsnap
