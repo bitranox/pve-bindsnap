@@ -3,4 +3,6 @@
 *.t text eol=lf
 *.json text eol=lf
 *.md text eol=lf
-* text=auto
+# eol=lf on the catch-all forces LF in the working tree on every OS, so a Windows
+# edit/save cannot reintroduce CRLF churn in types not listed explicitly above.
+* text=auto eol=lf
