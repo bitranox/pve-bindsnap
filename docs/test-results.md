@@ -139,6 +139,49 @@ two bind mounts: `mp0`->`/data`, `mp1`->`/extra`):
   regression. Confirmed in-process under `perl -T`: `apply_clone` installs the override
   only when the `API2/LXC.pm` checksum matches.
 
+## pve-container 6.1.12
+
+Validation run that added `6.1.12` to both known-good tables, on a Proxmox VE 9.2.6 node
+(pve-container **6.1.12**, libpve-guest-common-perl 6.0.5; snapshot combined checksum
+`29dc5ce7...1bce914f`, clone checksum `1ace1c4d...f7e7afc7`). A throwaway unprivileged CT
+carried one bind mount (`mp0` -> a host dir) and one managed volume (`mp1` ->
+`subvol-<vmid>-disk-1`).
+
+**Source review first.** Diffing the 6.1.10 and 6.1.12 package files showed the wrapped
+surface is unchanged: in `LXC/Config.pm` the only changes are the new `with_checked_volid`
+helper and its use in `vmconfig_hotplug_pending`/`vmconfig_apply_pending`/
+`apply_pending_mountpoint` plus `calculate_memory_constraints`, none of them on the
+snapshot path (`foreach_volume_full`, `snapshot_create`/`delete`/`rollback`, `has_feature`);
+in `API2/LXC.pm` the single change is an added `VM.PowerMgmt` check in `create_vm`, so the
+`clone_vm` body the overlay copies is byte-identical to 6.1.10.
+
+**Before the tables were extended** (the build read as untested): a bind-mount snapshot was
+refused with the full multi-line block; `BINDSNAP-UNSUPPORTED` let it through as
+`TASK WARNINGS`; `BINDSNAP-FORCE-RUNNING` was still required for the running CT; and
+`pct clone` fell back to the stock `unable to clone mountpoint 'mp0' (type bind)`, since the
+clone override is not installed on an unvalidated build. **PASS.**
+
+**After both checksums were added** (both banners read `checksum-validated`), with no
+keyword anywhere except where one is by design:
+
+| case                                                     | result                                                                           |
+|----------------------------------------------------------|----------------------------------------------------------------------------------|
+| stopped bind CT, no keyword                              | snapshot captured rootfs + mp1, skipped mp0, `TASK OK` (PASS)                    |
+| rollback, data level                                     | rootfs marker reverted, bind host file kept its post-snapshot change (PASS)      |
+| delete                                                   | removed rootfs + mp1, bind untouched, no zfs snapshot left (PASS)                |
+| running CT, no keyword                                   | refused, one-line `TASK ERROR` plus the full block (PASS)                        |
+| running CT, `BINDSNAP-FORCE-RUNNING`                     | proceeds with freeze/thaw; summary `: used` (PASS)                               |
+| running CT, standing directive in Notes                  | proceeds; summary `: standing` (PASS)                                            |
+| `BINDSNAP-EXCLUDE: mp1` in Notes                         | rootfs captured, `subvol-...-disk-1@excl1` absent (PASS)                         |
+| snapshot description `BINDSNAP-EXCLUDE:`                 | empty override, mp1 captured again (PASS)                                        |
+| `pct clone` of the stopped bind CT                       | rootfs + mp1 full-cloned, mp0 carried, yellow carry warning (PASS)               |
+| `pct clone` with `BINDSNAP-EXCLUDE: mp0` in source Notes | mp0 absent from the clone config (PASS)                                          |
+| snapshot of a CT without bind mounts                     | summary `no bind/device mounts -- stock snapshot, overlay made no change` (PASS) |
+| `vzdump --mode snapshot`                                 | ran through to stock and finished successfully (PASS)                            |
+
+The test CT and both clones were destroyed afterward, with no leftover datasets, zfs
+snapshots, dump files or bind directories.
+
 ## Aftermath
 
 The test CT was restored to its original config (rootfs only, original Notes, no test

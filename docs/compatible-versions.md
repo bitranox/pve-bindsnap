@@ -14,9 +14,10 @@ gating applies to them.
 
 These builds snapshot bind-mount CTs with no keyword needed.
 
-| pve-container | combined sha256                                                    | notes             |
-|---------------|--------------------------------------------------------------------|-------------------|
-| 6.1.10        | `1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106` | tested on PVE 9.2 |
+| pve-container | combined sha256                                                    | notes                                                    |
+|---------------|--------------------------------------------------------------------|----------------------------------------------------------|
+| 6.1.10        | `1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106` | tested on PVE 9.2                                        |
+| 6.1.12        | `29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f` | tested on PVE 9.2.6, with libpve-guest-common-perl 6.0.5 |
 
 ## Hard-blocked (known-bad)
 
@@ -58,9 +59,10 @@ sha256sum /usr/share/perl5/PVE/API2/LXC.pm | awk '{print $1}' | sha256sum | awk 
 On these builds, `pct clone` carries bind/device mountpoints to the new CT (and honours
 `BINDSNAP-EXCLUDE`).
 
-| pve-container | combined sha256                                                    | notes             |
-|---------------|--------------------------------------------------------------------|-------------------|
-| 6.1.10        | `8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198` | tested on PVE 9.2 |
+| pve-container | combined sha256                                                    | notes               |
+|---------------|--------------------------------------------------------------------|---------------------|
+| 6.1.10        | `8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198` | tested on PVE 9.2   |
+| 6.1.12        | `1ace1c4de506b79bf165f2c5aeaa8d8c4af35b6a9d91ce1ea24e5742f7e7afc7` | tested on PVE 9.2.6 |
 
 ### Hard-blocked (known-bad)
 

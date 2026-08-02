@@ -14,7 +14,7 @@ use strict;
 use warnings;
 
 # =====================================================================
-# pve-bindsnap                                       (1.1.0)
+# pve-bindsnap                                       (1.2.0)
 # ---------------------------------------------------------------------
 # Lets Proxmox snapshot LXC containers that carry bind-/device-mount
 # entries (mpN pointing at host paths), by hiding every non-'volume'
@@ -80,7 +80,7 @@ use warnings;
 # alternative.
 # =====================================================================
 
-our $VERSION = '1.1.0';
+our $VERSION = '1.2.0';
 
 # Upstream files whose byte-content defines the snapshot surface we wrap.
 # foreach_volume_full + snapshot_create/delete/rollback are INHERITED from
@@ -103,6 +103,7 @@ my @GUARDED_FILES = (
 # To add a new release: test it (see README), then paste its combined sha256 here.
 my %KNOWN_GOOD_CHECKSUMS = (
     '1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106' => '6.1.10',
+    '29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f' => '6.1.12',
 );
 
 # Known-BAD table. KEY = combined sha256 (same as above); VALUE = a short reason. A
@@ -135,6 +136,7 @@ my @CLONE_GUARDED_FILES = (
 # (good) or a reason (bad). Only the checksum decides; the version is a human label.
 my %KNOWN_GOOD_CLONE_CHECKSUMS = (
     '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198' => '6.1.10',
+    '1ace1c4de506b79bf165f2c5aeaa8d8c4af35b6a9d91ce1ea24e5742f7e7afc7' => '6.1.12',
 );
 
 my %KNOWN_BAD_CLONE_CHECKSUMS = (

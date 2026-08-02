@@ -18,6 +18,25 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.2.0] - 2026-08-03
+
+### Added
+
+- pve-container **6.1.12** joins both known-good tables: the snapshot guard (combined
+  sha256 `29dc5ce7...1bce914f`, with libpve-guest-common-perl 6.0.5) and the clone guard
+  (`1ace1c4d...f7e7afc7`). Bind-mount containers on that build now snapshot and clone with
+  no keyword. Validated on a PVE 9.2.6 node across the full matrix, and preceded by a
+  source diff against 6.1.10 confirming the wrapped surface is unchanged (the snapshot
+  helpers and the copied `clone_vm` body are byte-identical; 6.1.12 touches only
+  `with_checked_volid` in the hotplug/pending paths and a permission check in `create_vm`).
+  See [docs/test-results.md](docs/test-results.md).
+
+### Documentation
+
+- [docs/checksum-guard.md](docs/checksum-guard.md) spells out that `AbstractConfig.pm`
+  ships in `libpve-guest-common-perl`, so the snapshot checksum is a pair: an update to
+  that package also moves the combined hash and puts the build back into TEST mode.
+
 ## [1.1.0] - 2026-06-26
 
 ### Added

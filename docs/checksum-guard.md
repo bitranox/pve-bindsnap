@@ -118,6 +118,14 @@ combined hash. To get that version supported:
 
 `pve-container 6.1.10`, combined hash
 `1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106` (per file:
-`Config.pm` `eb4ed7b4...3abf3be7`, `AbstractConfig.pm` `70432cce...61871494`). Every node
-in a cluster on the same package version shares those exact bytes, so one entry
-covers the whole cluster at that version.
+`Config.pm` `eb4ed7b4...3abf3be7`, `AbstractConfig.pm` `70432cce...61871494`), and
+`pve-container 6.1.12`, combined hash
+`29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f` (per file:
+`Config.pm` `5d661402...e9ffdb2c`, `AbstractConfig.pm` `70432cce...61871494`, from
+libpve-guest-common-perl 6.0.5). Every node in a cluster on the same package versions
+shares those exact bytes, so one entry covers the whole cluster at that version.
+
+`AbstractConfig.pm` ships in `libpve-guest-common-perl`, not in `pve-container`, so the
+combined hash is really a pair: a `libpve-guest-common-perl` update moves it too, and the
+build then reads as untested until the new pair is vetted. That is the guard working as
+designed, since the snapshot helpers it wraps live in that file.
