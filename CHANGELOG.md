@@ -18,6 +18,16 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.2.1] - 2026-08-03
+
+### Documentation
+
+- The `proxmox-bindsnap` skill now names the vetted builds (pve-container 6.1.10 and 6.1.12 as
+  of 1.2.0) while pointing at the journal line and
+  [docs/compatible-versions.md](docs/compatible-versions.md) as the authority, and notes that
+  `AbstractConfig.pm` comes from `libpve-guest-common-perl`, so an upgrade of either package can
+  put a node into TEST mode. Overlay code unchanged.
+
 ## [1.2.0] - 2026-08-03
 
 ### Added
