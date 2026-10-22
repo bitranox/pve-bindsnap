@@ -97,7 +97,11 @@ the wrong case does not match.
   so it renders small). ALWAYS needs the colon. A directive in a snapshot's own description
   overrides the Notes default; an empty `BINDSNAP-EXCLUDE:` means exclude nothing. `rootfs` is
   never excluded. NOTE the mirror behaviour: for a SNAPSHOT it drops named MANAGED volumes; for a
-  CLONE it drops named BIND/DEVICE mounts.
+  CLONE it drops named BIND/DEVICE mounts. NEVER add, change or remove the directive in an
+  EXISTING snapshot's description (GUI Snapshots -> Edit, API `PUT .../snapshot/<snap>/config`):
+  it records what was captured. Adding it makes rollback leave that `mpN` at current data, delete
+  orphan `mpN@snap`, and a `--snapname` clone leave `mpN` out; removing it makes rollback/delete
+  fail on the missing volume snapshot.
 
 ## 5. Snapshot, and the checksum guard
 

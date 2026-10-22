@@ -56,6 +56,19 @@ read the **snapshot's own stored config**, whose description carries the directi
 later edit to the container's Notes can never change what an existing snapshot rolls back
 to or deletes. Each snapshot is self-describing.
 
+**Never edit an existing snapshot's directive.** The `BINDSNAP-EXCLUDE` line in a snapshot's own
+description is the record of what that snapshot captured, so don't add, change or remove it
+afterwards (GUI Snapshots -> Edit, or the API's `PUT .../snapshot/<snap>/config`). The
+overlay trusts the line as written and can't tell an edit from the original:
+
+- **Adding** (or widening) it makes `rollback` leave the newly named `mpN` at its current data
+  (an inconsistent restore), `delete` leave that volume's `mpN@snap` orphaned on storage, and a
+  `--snapname` clone leave `mpN` out although the snapshot holds its data.
+- **Removing** (or narrowing) it makes `rollback` and `delete` fail on a volume snapshot that
+  was never taken.
+
+Editing the rest of a snapshot's description is fine; only the directive line is load-bearing.
+
 Concretely: when the standing CT directive applies, the overlay writes the resolved
 `#### BINDSNAP-EXCLUDE: ...` line into the snapshot's stored comment at create time; when the
 override comes from the snapshot's own description, it's already there. Either way,

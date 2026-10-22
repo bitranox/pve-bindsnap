@@ -218,6 +218,11 @@ Only `mpN` mountpoints can be excluded; the `rootfs` is always kept. This applie
 bind-mount containers (the ones the overlay engages for); a plain container the overlay
 doesn't touch is unaffected.
 
+Once a snapshot exists, leave the `BINDSNAP-EXCLUDE` line in *its* description alone (GUI
+Snapshots -> Edit, or the API): it is the record of what the snapshot captured, and adding
+or removing it afterwards makes rollback, delete and `--snapname` clone act on the wrong
+volumes ([details](docs/bindsnap-exclude.md#frozen-into-the-snapshot)).
+
 The GUI, the API, and every `pct` invocation are all covered: the overlay rides in on
 the `PVE::LXC::Config` module, so every process that loads it gets it. The [design
 notes](docs/design.md) explain how.
