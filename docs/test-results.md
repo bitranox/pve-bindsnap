@@ -143,8 +143,10 @@ two bind mounts: `mp0`->`/data`, `mp1`->`/extra`):
 
 Validation run that added `6.1.12` to both known-good tables, on a Proxmox VE 9.2.6 node
 (pve-container **6.1.12**, libpve-guest-common-perl 6.0.5; snapshot combined checksum
-`29dc5ce7...1bce914f`, clone checksum `1ace1c4d...f7e7afc7`). A throwaway unprivileged CT
-carried one bind mount (`mp0` -> a host dir) and one managed volume (`mp1` ->
+`29dc5ce7...1bce914f`, clone checksum `1ace1c4d...f7e7afc7` (the whole-file hash used
+through 1.3.0; from 1.4.0 the clone guard hashes the `clone_vm` block,
+`7a10c90b...58aa56c8`, identical for 6.1.10-6.1.14)). A throwaway unprivileged CT carried
+one bind mount (`mp0` -> a host dir) and one managed volume (`mp1` ->
 `subvol-<vmid>-disk-1`).
 
 **Source review first.** Diffing the 6.1.10 and 6.1.12 package files showed the wrapped
@@ -186,15 +188,17 @@ snapshots, dump files or bind directories.
 
 Source review that added `6.1.14` to both known-good tables (pve-container **6.1.14**,
 libpve-guest-common-perl 6.0.5; snapshot combined checksum `04aada64...9e225a77`, clone
-checksum `2ea44bdd...a43b635a`).
+checksum `2ea44bdd...a43b635a` (the whole-file hash used through 1.3.0; from 1.4.0 the clone
+guard hashes the `clone_vm` block, `7a10c90b...58aa56c8`, identical for 6.1.10-6.1.14)).
 
 **Checksum provenance.** The values were computed from the published
 `pve-container_6.1.14_all.deb` and `libpve-guest-common-perl_6.0.5_all.deb` on
 `download.proxmox.com` (trixie, pve-no-subscription), with the same pipelines the overlay
 logs. Run over the published `pve-container_6.1.12_all.deb`, that method reproduces the
-6.1.12 entries exactly (`29dc5ce7...1bce914f` and `1ace1c4d...f7e7afc7`), so it matches what
-a node computes. libpve-guest-common-perl is still at 6.0.5, so `AbstractConfig.pm` is the
-same `70432cce...61871494` as in the 6.1.12 pair.
+6.1.12 entries exactly (`29dc5ce7...1bce914f` and `1ace1c4d...f7e7afc7`, the 1.3.0
+whole-file clone hash), so it matches what a node computes. libpve-guest-common-perl is
+still at 6.0.5, so `AbstractConfig.pm` is the same `70432cce...61871494` as in the 6.1.12
+pair.
 
 **Source diff 6.1.12 -> 6.1.14.** The wrapped surface is unchanged:
 
