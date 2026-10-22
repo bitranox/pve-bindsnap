@@ -117,9 +117,10 @@ install -D -m 0644 "$SRC_DIR/lib/PVE/API2/LXC.wrapper.pm" "$API_PM"
 # CRITICAL pre-flight: load PVE::LXC::Config exactly as a daemon will (default @INC,
 # wrapper -> .distrib -> overlay) and confirm the overlay applied -- BEFORE restarting
 # any daemon. On failure (here, or anywhere since the divert) the EXIT trap rolls back to
-# stock; the daemons are never touched.
+# stock; the daemons are never touched. Runs under taint mode (perl -T) like the daemons,
+# so a taint-only failure shows up here, not after the restart.
 echo ">> verifying the diverted module loads and the overlay applies"
-perl -e 'require PVE::LXC::Config; exit($PVE::LXC::BindSnap::APPLIED ? 0 : 1)' >/dev/null 2>&1 || {
+perl -T -e 'require PVE::LXC::Config; exit($PVE::LXC::BindSnap::APPLIED ? 0 : 1)' >/dev/null 2>&1 || {
     echo "!! PRE-FLIGHT FAILED -- the snapshot overlay did not apply." >&2
     exit 1
 }
@@ -128,9 +129,9 @@ perl -e 'require PVE::LXC::Config; exit($PVE::LXC::BindSnap::APPLIED ? 0 : 1)' >
 # (-> .distrib -> overlay -> apply_clone) and confirm apply_clone ran (CLONE_LOADED).
 # We assert CLONE_LOADED (the wrapper chain works), NOT CLONE_APPLIED (the override is
 # active), so installing on an UNTESTED build does not roll back -- clone simply stays
-# stock there, exactly as snapshots run in TEST mode.
+# stock there, exactly as snapshots run in TEST mode. Under perl -T like the daemons.
 echo ">> verifying the diverted API module loads and the clone overlay ran"
-perl -e 'require PVE::API2::LXC; exit($PVE::LXC::BindSnap::CLONE_LOADED ? 0 : 1)' >/dev/null 2>&1 || {
+perl -T -e 'require PVE::API2::LXC; exit($PVE::LXC::BindSnap::CLONE_LOADED ? 0 : 1)' >/dev/null 2>&1 || {
     echo "!! PRE-FLIGHT FAILED -- the clone overlay did not load." >&2
     exit 1
 }
