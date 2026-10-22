@@ -81,9 +81,10 @@ mountpoint, because clone is the mirror image of snapshot:
 
 - In a **snapshot**, bind/device mounts are always skipped by type, and `BINDSNAP-EXCLUDE`
   additionally drops named **managed volumes**.
-- In a **clone**, managed volumes are always cloned (there is a real volume to copy), bind/
-  device mounts are **carried** to the clone by default, and `BINDSNAP-EXCLUDE` drops named
-  **bind/device** mounts so the clone doesn't inherit them.
+- In a **clone**, managed volumes are cloned (there is a real volume to copy), bind/device
+  mounts are **carried** to the clone by default, and `BINDSNAP-EXCLUDE` drops named
+  **bind/device** mounts so the clone doesn't inherit them. The one exception on the volume
+  side is a `--snapname` clone, below.
 
 So `#### BINDSNAP-EXCLUDE: mp0` in a container's Notes means "don't capture mp0 in snapshots"
 if mp0 is a managed volume, and "don't carry mp0 into clones" if mp0 is a bind mount, the
@@ -95,6 +96,19 @@ from the snapshot's frozen description (a `--snapname` clone). There is nothing 
 into the clone itself: a clone is a fresh container, not a re-rollback-able snapshot. A
 clone that carries any bind/device mount also raises a `TASK WARNINGS` naming them and the
 `BINDSNAP-EXCLUDE` line that would drop them.
+
+**Carrying a bind/device mount requires `root@pam`.** Proxmox lets no other user set a
+non-volume mountpoint, so for any other user the clone refuses with `unable to clone
+mountpoint 'mp0' (type bind) -- carrying a bind/device mount to a clone is only allowed for
+root@pam`. Clone as `root@pam`, or name the mount in `BINDSNAP-EXCLUDE` so the clone drops it
+instead (an excluded mount is never carried, so the rule doesn't apply to it).
+
+**A `--snapname` clone leaves out volumes the snapshot excluded.** If the snapshot was taken
+with `BINDSNAP-EXCLUDE: mp1` and `mp1` is a managed volume, the snapshot holds no data for it,
+so there is nothing to clone. The clone leaves `mp1` out (instead of failing on a snapshot
+volume that doesn't exist) and says so: the summary line reads `left out mp1 (excluded from
+snapshot 'snap1', no snapshot data to clone)` and a `TASK WARNINGS` explains it. Clone the
+live (stopped) container instead if the copy needs that volume.
 
 ## What you see
 

@@ -104,7 +104,7 @@ bind/device data isn't versioned) and point at the plain `zfs snapshot` alternat
 ## What this isn't
 
 It isn't a Proxmox product, and Proxmox hasn't reviewed or endorsed it. It's release
-1.3.0, run in production on the author's own cluster, though not widely deployed and only on
+1.4.0, run in production on the author's own cluster, though not widely deployed and only on
 pve-container 6.1.10, 6.1.12 and 6.1.14 so far, not other versions. And it isn't a way to avoid understanding your
 own hypervisor: if you install it, read the [design notes](docs/design.md) and the module so you
 know which method it wraps and why. Though the risk is low, as already described in the README.

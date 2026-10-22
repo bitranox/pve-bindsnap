@@ -5,13 +5,12 @@ entries pointing at host paths). Proxmox greys snapshots out and refuses the clo
 overlay enables both again, delegating to Proxmox's genuine snapshot and clone code
 rather than forking it.
 
-> Release 1.3.0. It passes the unit tests and has been exercised on Proxmox VE 9.2 / 9.3
-> (pve-container 6.1.10 and 6.1.12; 6.1.14 is source-reviewed against 6.1.12, with its
-> checksums confirmed on PVE 9.2.20 nodes) across the full install lifecycle and matrix:
-> create / rollback / delete (including a data-level rollback), the
-> `BINDSNAP-FORCE-RUNNING`, `BINDSNAP-UNSUPPORTED` and `BINDSNAP-EXCLUDE` paths, each both
-> per-snapshot and as a standing CT-Notes directive, plus the known-bad hard block, and it
-> runs in the author's own production cluster.
+> Release 1.4.0. It passes the unit tests and has been exercised on Proxmox VE 9.2 / 9.3
+> (pve-container 6.1.10 and 6.1.12; 6.1.14 is source-reviewed against 6.1.12) across the
+> full install lifecycle and matrix: create / rollback / delete (including a data-level
+> rollback), the `BINDSNAP-FORCE-RUNNING`, `BINDSNAP-UNSUPPORTED` and `BINDSNAP-EXCLUDE`
+> paths, each both per-snapshot and as a standing CT-Notes directive, plus the known-bad hard
+> block, and it runs in the author's own production cluster.
 > `pct clone` of a bind-mount container is covered too (the binds are carried to the clone,
 > `BINDSNAP-EXCLUDE` drops them), gated by its own checksum so an untested build falls back
 > to stock. It hasn't been run against pve-container versions other than those,
@@ -255,9 +254,16 @@ container's Notes, the same directive used for snapshots:
 ```
 
 An excluded mount is dropped from the clone instead of carried. (`BINDSNAP-EXCLUDE` only
-drops bind/device mounts from a clone; a managed `mpN` volume is always cloned, since for a
-clone there is a real volume to copy.) Cloning a container without bind/device mounts is
-completely stock, on any version.
+drops bind/device mounts from a clone; a managed `mpN` volume is cloned, since for a clone
+there is a real volume to copy. The one exception is a `--snapname` clone of a snapshot that
+was taken with that volume excluded: the snapshot holds no data for it, so the clone leaves
+it out and says so in the task log and a `TASK WARNINGS`.) Cloning a container without
+bind/device mounts is completely stock, on any version.
+
+Carrying a bind/device mount to a clone needs `root@pam`, because Proxmox lets no other user
+set a non-volume mountpoint. Any other user gets `unable to clone mountpoint 'mp0' (type
+bind) -- carrying a bind/device mount to a clone is only allowed for root@pam`; clone as
+`root@pam`, or exclude the mount as above.
 
 A note on running containers and snapshots: Proxmox already requires `--snapname` to fully
 clone a *running* container ("Full clone of a running container is only possible from a
