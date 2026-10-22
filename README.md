@@ -5,17 +5,20 @@ entries pointing at host paths). Proxmox greys snapshots out and refuses the clo
 overlay enables both again, delegating to Proxmox's genuine snapshot and clone code
 rather than forking it.
 
-> Release 1.4.0. It passes the unit tests and has been exercised on Proxmox VE 9.2 / 9.3
-> (pve-container 6.1.10 and 6.1.12; 6.1.14 is source-reviewed against 6.1.12) across the
-> full install lifecycle and matrix: create / rollback / delete (including a data-level
-> rollback), the `BINDSNAP-FORCE-RUNNING`, `BINDSNAP-UNSUPPORTED` and `BINDSNAP-EXCLUDE`
-> paths, each both per-snapshot and as a standing CT-Notes directive, plus the known-bad hard
-> block, and it runs in the author's own production cluster.
+> Release 1.4.0. It passes the unit tests, and the overlay as of 1.3.0 has been exercised on
+> Proxmox VE 9.2 / 9.3 (pve-container 6.1.10 and 6.1.12; 6.1.14 is source-reviewed against
+> 6.1.12) across the full install lifecycle and matrix: create / rollback / delete (including
+> a data-level rollback), the `BINDSNAP-FORCE-RUNNING`, `BINDSNAP-UNSUPPORTED` and
+> `BINDSNAP-EXCLUDE` paths, each both per-snapshot and as a standing CT-Notes directive, plus
+> the known-bad hard block, and it runs in the author's own production cluster.
 > `pct clone` of a bind-mount container is covered too (the binds are carried to the clone,
 > `BINDSNAP-EXCLUDE` drops them), gated by its own checksum so an untested build falls back
-> to stock. It hasn't been run against pve-container versions other than those,
-> so on a build it doesn't recognise it refuses by default until you opt in. It's a small,
-> commented overlay: read the source and the [test plan](docs/testing.md) before you deploy.
+> to stock. The 1.4.0 changes (the `root@pam` clone gate, leaving out volumes a snapshot
+> excluded, honouring a snapshot's exclude directive only on a bind-mount CT) are
+> unit-tested; their on-node run is pending. It hasn't been run against pve-container
+> versions other than those, so on a build it doesn't recognise it refuses by default until
+> you opt in. It's a small, commented overlay: read the source and the
+> [test plan](docs/testing.md) before you deploy.
 >
 > The risks are low: the wrapper loads the overlay eval-guarded (a bug in it just falls
 > back to stock), the installer pre-flights and rolls back on failure, `uninstall.sh`
@@ -40,7 +43,7 @@ is left untouched.
 | What's in the container config  | In the snapshot?         | In a clone?                  | Notes                                                                                                                                         |
 |---------------------------------|--------------------------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
 | `rootfs` (the root disk)        | **Yes**                  | **Yes** (copied)             | Proxmox-managed volume; always kept                                                                                                           |
-| `mpN`: a storage volume         | **Yes**, unless excluded | **Yes** (copied)             | Managed volume (e.g. a data disk)                                                                                                             |
+| `mpN`: a storage volume         | **Yes**, unless excluded | **Yes** (copied)             | Managed volume (e.g. a data disk); a `--snapname` clone leaves it out if that bind-CT snapshot excluded it                                    |
 | `mpN`: a bind mount (host path) | **No** (setting kept)    | **Carried**, unless excluded | Only the mount *setting* is snapshotted/cloned and restored on rollback;<br>the host *data* is never snapshotted, cloned, or rolled back      |
 | `devN`: a passthrough device    | **No** (setting kept)    | **Carried**                  | Only the mount *setting* is snapshotted/cloned and restored on rollback;<br>the host device/data is never snapshotted, cloned, or rolled back |
 
