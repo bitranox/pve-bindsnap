@@ -83,15 +83,46 @@ is($clone_block->($file), $clone, '_clone_block returns exactly the clone_vm blo
 my $sum = $clone_checksum->($file);
 is($sum, sha256_hex($clone), '_clone_checksum == sha256_hex of the block');
 
-SKIP: {
-    my $have = sub { system("command -v $_[0] >/dev/null 2>&1") == 0 };
-    skip 'awk or sha256sum not available', 1 unless $have->('awk') && $have->('sha256sum');
+# The documented awk|sha256sum pipeline over PATH; only called when $can_pipe is true.
+my $have = sub { system("command -v $_[0] >/dev/null 2>&1") == 0 };
+my $can_pipe = $have->('awk') && $have->('sha256sum');
+sub pipeline_sum {
+    my ($path) = @_;
     my $cmd = q{awk '/^__PACKAGE__->register_method\(\{$/{hit=0; buf=""} {buf=buf $0 "\n"} }
             . q{/^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' '}
-            . $file . q{' | sha256sum | awk '{print $1}'};
-    my $pipeline = `$cmd`;
-    chomp $pipeline;
-    is($sum, $pipeline, '_clone_checksum reproduces the documented awk|sha256sum pipeline');
+            . $path . q{' | sha256sum | awk '{print $1}'};
+    my $out = `$cmd`;
+    chomp $out;
+    return $out;
+}
+
+SKIP: {
+    skip 'awk or sha256sum not available', 1 unless $can_pipe;
+    is($sum, pipeline_sum($file),
+        '_clone_checksum reproduces the documented awk|sha256sum pipeline');
+}
+
+# 2b. the name line matches any quote character, as the awk's `.clone_vm.` does
+{
+    (my $dq = $clone) =~ s/'clone_vm'/"clone_vm"/;
+    my $f = tmpfile($head . $before . $dq . $after);
+    is($clone_block->($f), $dq, 'a double-quoted name => "clone_vm" is still the clone_vm block');
+  SKIP: {
+        skip 'awk or sha256sum not available', 1 unless $can_pipe;
+        is($clone_checksum->($f), pipeline_sum($f), 'double-quoted name: checksum == awk pipeline');
+    }
+}
+
+# 2c. a final `});` with no trailing newline: awk still emits "\n" after it, so must we
+{
+    (my $bare = $clone) =~ s/\n\z//;
+    my $f = tmpfile($head . $before . $bare);
+    is($clone_block->($f), $clone, 'final }); without a newline: block ends in "\n" like awk');
+  SKIP: {
+        skip 'awk or sha256sum not available', 1 unless $can_pipe;
+        is($clone_checksum->($f), pipeline_sum($f),
+            'no trailing newline: checksum == awk pipeline');
+    }
 }
 
 # 3. edits outside the block don't matter; edits inside do

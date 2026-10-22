@@ -301,9 +301,10 @@ sub _config_checksum {
 # clone_vm, or EOF before its closing `});`). The rule: a line matching
 # `^__PACKAGE__->register_method\(\{$` starts a new buffer and clears the clone_vm mark (so
 # a clone_vm block that never ends in a bare `});` yields undef, not the next method's
-# block); every line (with its newline) is appended; a line matching
-# `^    name => 'clone_vm',$` marks the buffer as clone_vm's; the first `^\}\);$` after that
-# ends the block. Byte-for-byte what the documented awk command prints. Path is a
+# block); every line is appended with a "\n" (as awk's buf=buf $0 "\n" does, so a last
+# line without one gains it); a line matching `^    name => .clone_vm.,$` (any quote
+# character, as the awk's `.`) marks the buffer as clone_vm's; the first `^\}\);$` after
+# that ends the block. Byte-for-byte what the documented awk command prints. Path is a
 # parameter so this is unit-testable.
 sub _clone_block {
     my ($path) = @_;
@@ -311,9 +312,10 @@ sub _clone_block {
     open(my $fh, '<', $path) or return undef;
     my ($buf, $hit) = ('', 0);
     while (my $line = <$fh>) {
+        $line =~ s/\n\z//;    # awk's $0: the record without its newline
         ($buf, $hit) = ('', 0) if $line =~ /^__PACKAGE__->register_method\(\{$/;
-        $buf .= $line;
-        $hit = 1 if $line =~ /^    name => 'clone_vm',$/;
+        $buf .= "$line\n";
+        $hit = 1 if $line =~ /^    name => .clone_vm.,$/;
         if ($hit && $line =~ /^\}\);$/) {
             close $fh;
             return $buf;
