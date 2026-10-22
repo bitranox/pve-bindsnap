@@ -59,6 +59,19 @@ my $kgl = PVE::LXC::BindSnap->can('_known_good_list') or BAIL_OUT('_known_good_l
 like($kgl->(), qr/pve-container 6\.1\.10/, 'lists the supported version');
 like($kgl->(), qr/1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106/, 'lists its checksum');
 
+# ordered by version label per component (6.1.9 < 6.1.10 < 6.2.0), not as strings
+{
+    no warnings 'once';
+    local %PVE::LXC::BindSnap::KNOWN_GOOD_CHECKSUMS = (
+        aaaa => '6.1.10', bbbb => '6.1.9', cccc => '6.2.0',
+    );
+    is($kgl->(),
+        "    pve-container 6.1.9  bbbb\n"
+      . "    pve-container 6.1.10  aaaa\n"
+      . "    pve-container 6.2.0  cccc",
+        'lists known-good builds in numeric version order');
+}
+
 # --- refusal messages (pure, so unit-testable). They are the FULL multi-line explanation
 #     printed to the task log (which preserves newlines); snapshot_create dies with a
 #     separate short one-line status that PVE puts in TASK ERROR. ---

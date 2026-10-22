@@ -64,7 +64,7 @@ my $B = 'PVE::LXC::BindSnap';
 }
 
 # === _clone_code returns an installable coderef ===
-is(ref($B->can('_clone_code')->('6.1.10')), 'CODE', '_clone_code() returns a CODE ref to install as clone_vm {code}');
+is(ref($B->can('_clone_code')->()), 'CODE', '_clone_code() returns a CODE ref to install as clone_vm {code}');
 
 # === _clone_summary: task-log report (parity with _snapshot_summary) ===
 {

@@ -86,7 +86,7 @@ is($sum, sha256_hex($clone), '_clone_checksum == sha256_hex of the block');
 SKIP: {
     my $have = sub { system("command -v $_[0] >/dev/null 2>&1") == 0 };
     skip 'awk or sha256sum not available', 1 unless $have->('awk') && $have->('sha256sum');
-    my $cmd = q{awk '/^__PACKAGE__->register_method\(\{$/{buf=""} {buf=buf $0 "\n"} }
+    my $cmd = q{awk '/^__PACKAGE__->register_method\(\{$/{hit=0; buf=""} {buf=buf $0 "\n"} }
             . q{/^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' '}
             . $file . q{' | sha256sum | awk '{print $1}'};
     my $pipeline = `$cmd`;
@@ -113,6 +113,13 @@ ok(!defined $clone_block->(tmpfile($head . $before . $after)), 'undef for a file
     (my $open = $clone) =~ s/^\}\);\n//m;
     ok(!defined $clone_checksum->(tmpfile($head . $before . $open)),
         'undef when the clone_vm block never reaches });');
+}
+{
+    # clone_vm block closed by `}});` (not a bare `});`) must not run on into the next method
+    (my $glued = $clone) =~ s/^    \},\n\}\);\n/    }});\n/m;
+    isnt($glued, $clone, 'fixture: clone_vm block now ends in }});');
+    ok(!defined $clone_block->(tmpfile($head . $before . $glued . $after)),
+        'undef when clone_vm ends in }}); and another method follows');
 }
 
 done_testing();

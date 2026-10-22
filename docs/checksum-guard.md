@@ -87,7 +87,7 @@ Reproduce it from the shell (use `LXC.pm.distrib` if the overlay is installed):
 ```bash
 api=/usr/share/perl5/PVE/API2/LXC.pm
 [ -e "$api.distrib" ] && api="$api.distrib"
-awk '/^__PACKAGE__->register_method\(\{$/{buf=""} {buf=buf $0 "\n"} /^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' "$api" | sha256sum | awk '{print $1}'
+awk '/^__PACKAGE__->register_method\(\{$/{hit=0; buf=""} {buf=buf $0 "\n"} /^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' "$api" | sha256sum | awk '{print $1}'
 ```
 
 On a build that isn't in the clone known-good table, the override is **not installed** at

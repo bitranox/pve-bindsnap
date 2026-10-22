@@ -132,7 +132,7 @@ our %KNOWN_BAD_CHECKSUMS = (
 # unrelated upstream change. If the checksum is not known-good, we leave clone_vm stock
 # (binds stay blocked, exactly as upstream -- no regression on an untested build).
 # Recompute the manual way (must equal what the overlay logs):
-#   awk '/^__PACKAGE__->register_method\(\{$/{buf=""} {buf=buf $0 "\n"} /^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' \
+#   awk '/^__PACKAGE__->register_method\(\{$/{hit=0; buf=""} {buf=buf $0 "\n"} /^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' \
 #     /usr/share/perl5/PVE/API2/LXC.pm | sha256sum | awk '{print $1}'
 my $CLONE_GUARDED_FILE = 'PVE/API2/LXC.pm';    # %INC key -> /usr/share/perl5/PVE/API2/LXC.pm
 
@@ -204,8 +204,10 @@ sub _is_pve_daemon {
 # PVE daemon: an admin greps the daemon journal to confirm the overlay is live, and nothing
 # else sees it. The per-snapshot summaries and ALL refusals/warnings are emitted on the
 # operation (via _log_journal / _log_block / die) and are deliberately NOT gated here, so
-# GUI and CLI snapshots still report fully.
-sub _log_banner { return if -t STDERR; return unless _is_pve_daemon(); _log($_[0]); }
+# GUI and CLI snapshots still report fully. Takes a coderef that BUILDS the message, called
+# only when the banner will actually print -- so the version lookup behind it (see _vlabel)
+# never runs for a TTY or a non-daemon loader.
+sub _log_banner { return if -t STDERR; return unless _is_pve_daemon(); _log($_[0]->()); }
 
 # Print a pre-formatted multi-line block to STDERR as-is. A worker's STDERR is redirected
 # straight to the task-log file, which PRESERVES newlines -- unlike a die message, which
@@ -239,6 +241,12 @@ sub _pkg_version {
         $out =~ /\A\s*(\S+)\s*\z/ ? $1 : undef;
     };
 }
+
+# The pve-container version label, looked up lazily: dpkg-query only runs when a message
+# needs it, at most once per process (every loader of PVE::LXC::Config / PVE::API2::LXC
+# runs the overlay, most of which never print anything).
+my $VLABEL;
+sub _vlabel { return $VLABEL //= (_pkg_version('pve-container') // 'unknown'); }
 
 # Resolve the on-disk path of the GENUINE upstream module to checksum. From %INC,
 # falling back to the standard PVE perl5 dir. But when we are installed via
@@ -291,17 +299,19 @@ sub _config_checksum {
 
 # The clone_vm register_method block of the file at PATH, or undef (unreadable file, no
 # clone_vm, or EOF before its closing `});`). The rule: a line matching
-# `^__PACKAGE__->register_method\(\{$` starts a new buffer; every line (with its newline)
-# is appended; a line matching `^    name => 'clone_vm',$` marks the buffer as clone_vm's;
-# the first `^\}\);$` after that ends the block. Byte-for-byte what the documented awk
-# command prints. Path is a parameter so this is unit-testable.
+# `^__PACKAGE__->register_method\(\{$` starts a new buffer and clears the clone_vm mark (so
+# a clone_vm block that never ends in a bare `});` yields undef, not the next method's
+# block); every line (with its newline) is appended; a line matching
+# `^    name => 'clone_vm',$` marks the buffer as clone_vm's; the first `^\}\);$` after that
+# ends the block. Byte-for-byte what the documented awk command prints. Path is a
+# parameter so this is unit-testable.
 sub _clone_block {
     my ($path) = @_;
     return undef unless defined $path;
     open(my $fh, '<', $path) or return undef;
     my ($buf, $hit) = ('', 0);
     while (my $line = <$fh>) {
-        $buf = '' if $line =~ /^__PACKAGE__->register_method\(\{$/;
+        ($buf, $hit) = ('', 0) if $line =~ /^__PACKAGE__->register_method\(\{$/;
         $buf .= $line;
         $hit = 1 if $line =~ /^    name => 'clone_vm',$/;
         if ($hit && $line =~ /^\}\);$/) {
@@ -529,12 +539,27 @@ sub _log_op_summary {
     ));
 }
 
-# Indented "pve-container <ver>  <checksum>" lines for every known-good build, for the
-# multi-line refusal explanations (printed to the task log, which preserves newlines).
-# Pure, unit-testable.
+# Compare two version labels like <=> (-1/0/1): split on '.' and '-', compare component by
+# component -- numerically when both are all digits (so 6.1.9 < 6.1.10 < 6.2.0), else as
+# strings; a shorter label that is a prefix of the other sorts first. Pure, unit-testable.
+sub _vercmp {
+    my @a = split /[.-]/, $_[0];
+    my @b = split /[.-]/, $_[1];
+    while (@a && @b) {
+        my ($x, $y) = (shift @a, shift @b);
+        my $c = ($x =~ /\A\d+\z/ && $y =~ /\A\d+\z/) ? $x <=> $y : $x cmp $y;
+        return $c if $c;
+    }
+    return @a <=> @b;
+}
+
+# Indented "pve-container <ver>  <checksum>" lines for every known-good build, in version
+# order, for the multi-line refusal explanations (printed to the task log, which preserves
+# newlines). Pure, unit-testable.
 sub _known_good_list {
     my @l = map { "    pve-container $KNOWN_GOOD_CHECKSUMS{$_}  $_" }
-        sort { $KNOWN_GOOD_CHECKSUMS{$a} cmp $KNOWN_GOOD_CHECKSUMS{$b} } keys %KNOWN_GOOD_CHECKSUMS;
+        sort { _vercmp($KNOWN_GOOD_CHECKSUMS{$a}, $KNOWN_GOOD_CHECKSUMS{$b}) }
+        keys %KNOWN_GOOD_CHECKSUMS;
     return @l ? join("\n", @l) : "    (none recorded)";
 }
 
@@ -663,7 +688,6 @@ sub _apply {
     # BINDSNAP-UNSUPPORTED opt-in in the snapshot name/Description (handled in snapshot_create).
     # The pve-container version is a human label only -- never the decision.
     my ($sum, $per) = _config_checksum();
-    my $vlabel = _pkg_version('pve-container') // 'unknown';
     my $checksum_known = defined($sum) && exists $KNOWN_GOOD_CHECKSUMS{$sum};
     # Known-BAD wins over everything: a hard block that BINDSNAP-UNSUPPORTED cannot override.
     my $bad_reason = (defined($sum) && exists $KNOWN_BAD_CHECKSUMS{$sum})
@@ -723,6 +747,8 @@ sub _apply {
     *PVE::LXC::Config::snapshot_create = sub {
         my ($class, $vmid, $snapname, $save_vmstate, $comment) = @_;
         return $orig_create->(@_) if defined($snapname) && $snapname eq 'vzdump';
+
+        my $vlabel = _vlabel();
 
         # Load the config once -- reused for the engagement check, the BINDSNAP-EXCLUDE
         # directive, and the summary. Fail-safe: if it can't be read, assume the CT
@@ -860,7 +886,7 @@ sub _apply {
     };
 
     $APPLIED = 1;
-    _log_banner(_load_message($checksum_known, $sum, $vlabel, $per, $bad_reason));
+    _log_banner(sub { _load_message($checksum_known, $sum, _vlabel(), $per, $bad_reason) });
 }
 
 # =====================================================================
@@ -986,9 +1012,8 @@ sub _clone_not_in_snapshot_warning {
 # Imported-sub calls from the original (only extract_param) are fully qualified here, since
 # this body runs in package PVE::LXC::BindSnap which does not import them. Because it is a
 # whole-method copy it is only installed on a checksum-validated build (see apply_clone);
-# $vlabel is the pve-container version label, baked in for the summary.
+# the summary takes the pve-container version label from _vlabel() when it runs.
 sub _clone_code {
-    my ($vlabel) = @_;
     return sub {
         my ($param) = @_;
 
@@ -1230,7 +1255,7 @@ sub _clone_code {
             # never affect the clone itself.
             eval {
                 print _clone_summary(
-                    vmid => $vmid, newid => $newid, vlabel => $vlabel,
+                    vmid => $vmid, newid => $newid, vlabel => _vlabel(),
                     cloned => [sort keys %$mountpoints],
                     carried => \@clone_carried, excluded => \@clone_excluded,
                     not_in_snapshot => \@clone_not_in_snapshot, snapname => $snapname,
@@ -1376,7 +1401,6 @@ sub apply_clone {
     };
 
     my $sum = _clone_checksum(_module_path($CLONE_GUARDED_FILE));
-    my $vlabel = _pkg_version('pve-container') // 'unknown';
     my $checksum_known = defined($sum) && exists $KNOWN_GOOD_CLONE_CHECKSUMS{$sum};
     my $bad_reason = (defined($sum) && exists $KNOWN_BAD_CLONE_CHECKSUMS{$sum})
         ? $KNOWN_BAD_CLONE_CHECKSUMS{$sum} : undef;
@@ -1387,20 +1411,24 @@ sub apply_clone {
     # exactly as upstream, no regression. CLONE_LOADED is still set (the wrapper chain works).
     if (!$checksum_known || defined $bad_reason) {
         my $why = defined $bad_reason ? "known-BAD ($bad_reason)" : "untested";
-        _log_banner("clone overlay loaded but NOT active: pve-container $vlabel clone_vm is "
-                  . "$why (clone_vm sha256 $combined); bind-mount clones use stock behaviour. "
-                  . "Compatible builds: $COMPAT_URL");
+        _log_banner(sub {
+            "clone overlay loaded but NOT active: pve-container " . _vlabel() . " clone_vm is "
+              . "$why (clone_vm sha256 $combined); bind-mount clones use stock behaviour. "
+              . "Compatible builds: $COMPAT_URL";
+        });
         $CLONE_LOADED = 1;
         return;
     }
 
     my $info = eval { PVE::API2::LXC->map_method_by_name('clone_vm') };
     if ($info && ref($info) eq 'HASH' && ref($info->{code}) eq 'CODE') {
-        $info->{code} = _clone_code($vlabel);    # mutate the live, shared method definition
+        $info->{code} = _clone_code();    # mutate the live, shared method definition
         $CLONE_APPLIED = 1;
-        _log_banner("clone overlay active (pve-container $vlabel, checksum-validated; "
-                  . "clone_vm sha256 $combined): bind/device mountpoints are carried to the "
-                  . "clone (BINDSNAP-EXCLUDE drops named mpN)");
+        _log_banner(sub {
+            "clone overlay active (pve-container " . _vlabel() . ", checksum-validated; "
+              . "clone_vm sha256 $combined): bind/device mountpoints are carried to the "
+              . "clone (BINDSNAP-EXCLUDE drops named mpN)";
+        });
     } else {
         _log("clone_vm method definition not found; clone override DISABLED (stock behaviour)");
     }
