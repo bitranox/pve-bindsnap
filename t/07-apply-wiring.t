@@ -241,6 +241,22 @@ my $bind = sub { my ($running, $notes) = @_; return { description => ($notes//''
     is_deeply($PVE::LXC::Config::ROLLBACK[0]{vols}, ['rootfs','mp2'], 'rollback drops bind mp3 + excluded mp1');
 }
 
+# === 8b) a PLAIN CT's snapshot was taken stock (every volume included), so a directive in
+#     its description was never applied: delete/rollback must not skip the named volume ===
+{
+    reset_log();
+    $PVE::LXC::Config::CONF{6} = { description => "#### BINDSNAP-EXCLUDE: mp1", _running => 0,
+        _vols => [['rootfs',{type=>'volume'}], ['mp1',{type=>'volume'}]] };
+    my ($okd) = run_quiet(sub { $C->snapshot_delete(6, 'p1') });
+    ok($okd, 'plain CT snapshot_delete proceeds');
+    is_deeply($PVE::LXC::Config::DELETE[0]{vols}, ['rootfs','mp1'],
+        'plain CT delete keeps mp1 (the directive was never applied to its snapshot)');
+    my ($okr) = run_quiet(sub { $C->snapshot_rollback(6, 'p1') });
+    ok($okr, 'plain CT snapshot_rollback proceeds');
+    is_deeply($PVE::LXC::Config::ROLLBACK[0]{vols}, ['rootfs','mp1'],
+        'plain CT rollback keeps mp1 (the directive was never applied to its snapshot)');
+}
+
 # === 9) vzdump snapname bypasses the overlay entirely (straight to upstream) ===
 {
     reset_log();

@@ -546,7 +546,7 @@ sub _log_op_summary {
     return unless $snap;
     _log_journal(_op_summary(
         op => $op, did => $did, class => $class, vmid => $vmid, snapname => $snapname,
-        conf => $snap, fvf => $orig_fvf, excl => (_snap_excludes($snap->{description}) // {}),
+        conf => $snap, fvf => $orig_fvf, excl => _conf_excludes($class, $snap, $orig_fvf),
     ));
 }
 
@@ -663,14 +663,15 @@ sub _msg_running {
 # the LIVE upstream coderef. The exclude set is $CURRENT_EXCLUDES when set (during
 # snapshot_create, where the effective set may be a per-snapshot override and $conf is
 # the live CT config); otherwise it is read from the config being iterated -- which for
-# delete/rollback is the snapshot's own frozen description.
+# delete/rollback is the snapshot's own frozen description, honoured only if that snapshot
+# has a bind/device mountpoint (_conf_excludes: a plain CT's snapshot never applied it).
 sub _make_filter {
     my ($orig) = @_;
     return sub {
         my ($class, $conf, $opts, $func, @param) = @_;
         my $excl = defined($CURRENT_EXCLUDES)
             ? $CURRENT_EXCLUDES
-            : (_snap_excludes($conf->{description}) // {});
+            : _conf_excludes($class, $conf, $orig);
         return $orig->(
             $class, $conf, $opts,
             sub {
