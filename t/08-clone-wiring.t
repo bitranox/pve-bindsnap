@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 # Clone-override tests. Two layers:
-#   * _clone_disposition -- the pure carry/exclude decision the patched clone_vm makes
-#     for each config option (unit-testable off-node; the full closure needs the live
-#     PVE stack, so its end-to-end behaviour is verified on a node instead).
+#   * _clone_disposition -- the pure clone/carry/exclude/deny decision the patched
+#     clone_vm makes for each config option (unit-testable off-node; the full closure
+#     needs the live PVE stack, so its end-to-end behaviour is verified on a node instead).
 #   * apply_clone wiring -- with a stubbed PVE::API2::LXC, prove apply_clone is
 #     idempotent and, off-node (no upstream to hash => TEST mode), leaves the registered
 #     clone_vm untouched (CLONE_LOADED=1, CLONE_APPLIED=0, $info->{code} unchanged). The
@@ -39,17 +39,29 @@ BEGIN {
 
 my $B = 'PVE::LXC::BindSnap';
 
-# === _clone_disposition: the pure carry/exclude rule ===
-is($B->can('_clone_disposition')->('rootfs', 'volume', {}), 'clone-volume', 'managed rootfs is cloned');
-is($B->can('_clone_disposition')->('mp0', 'volume', {}),    'clone-volume', 'managed mpN is cloned');
-is($B->can('_clone_disposition')->('mp0', 'bind', {}),      'carry',        'bind mpN is carried');
-is($B->can('_clone_disposition')->('mp0', 'device', {}),    'carry',        'device mpN is carried');
-is($B->can('_clone_disposition')->('mp1', 'bind', { mp1 => 1 }), 'exclude',  'excluded bind mpN is dropped');
-is($B->can('_clone_disposition')->('mp1', 'volume', { mp1 => 1 }), 'clone-volume',
-    'exclude does NOT affect a managed volume in clone (type wins; a volume is always cloned)');
-is($B->can('_clone_disposition')->('rootfs', 'bind', {}), 'carry', 'rootfs is never excluded (carried even if bind)');
-is($B->can('_clone_disposition')->('net0', undef, {}),    'copy-other', 'netN is copied as-is');
-is($B->can('_clone_disposition')->('hostname', undef, {}), 'copy-other', 'a non-mountpoint option is copied as-is');
+# === _clone_disposition: the pure clone/carry/exclude/deny rule ===
+{
+    my $d = $B->can('_clone_disposition');
+    is($d->('rootfs', 'volume', {}), 'clone-volume', 'managed rootfs is cloned');
+    is($d->('mp0', 'volume', {}),    'clone-volume', 'managed mpN is cloned');
+    is($d->('mp0', 'bind', {}, root => 1),   'carry', 'bind mpN is carried for root@pam');
+    is($d->('mp0', 'device', {}, root => 1), 'carry', 'device mpN is carried for root@pam');
+    is($d->('mp0', 'bind', {}),   'deny', 'bind mpN is denied for a non-root caller');
+    is($d->('mp0', 'device', {}), 'deny', 'device mpN is denied for a non-root caller');
+    is($d->('mp1', 'bind', { mp1 => 1 }, root => 1), 'exclude', 'excluded bind mpN is dropped');
+    is($d->('mp1', 'bind', { mp1 => 1 }), 'exclude', 'excluded bind mpN is dropped for a non-root caller too (not denied)');
+    is($d->('mp1', 'bind', { mp1 => 1 }, snapshot => 1, root => 1), 'exclude',
+        'excluded bind mpN in a snapshot clone is still dropped');
+    is($d->('mp1', 'volume', { mp1 => 1 }), 'clone-volume',
+        'live clone: exclude does NOT affect a managed volume (a live volume is always cloned)');
+    is($d->('mp1', 'volume', { mp1 => 1 }, snapshot => 1), 'not-in-snapshot',
+        'snapshot clone: a managed mpN excluded from the snapshot is left out');
+    is($d->('rootfs', 'volume', {}, snapshot => 1), 'clone-volume', 'snapshot clone: managed rootfs is cloned');
+    is($d->('rootfs', 'bind', {}, root => 1), 'carry', 'rootfs is never excluded (carried even if bind)');
+    is($d->('rootfs', 'bind', {}), 'deny', 'bind rootfs is denied for a non-root caller');
+    is($d->('net0', undef, {}),     'copy-other', 'netN is copied as-is');
+    is($d->('hostname', undef, {}), 'copy-other', 'a non-mountpoint option is copied as-is');
+}
 
 # === _clone_code returns an installable coderef ===
 is(ref($B->can('_clone_code')->('6.1.10')), 'CODE', '_clone_code() returns a CODE ref to install as clone_vm {code}');
@@ -73,7 +85,32 @@ is(ref($B->can('_clone_code')->('6.1.10')), 'CODE', '_clone_code() returns a COD
         vmid => 5, newid => 6, vlabel => '6.1.10', cloned => ['rootfs'],
     )) =~ s/\s+/ /g;
     like($n, qr/no bind\/device mounts -- stock clone, overlay made no change/, 'summary: normal CT clone reported as no-op');
-    unlike($n, qr/carried|excluded/, 'summary: normal CT clone names no carried/excluded mounts');
+    unlike($n, qr/carried|excluded|left out/, 'summary: normal CT clone names no carried/excluded/left-out mounts');
+
+    (my $ns = $B->can('_clone_summary')->(
+        vmid => 5, newid => 6, vlabel => '6.1.10', cloned => ['rootfs'],
+        not_in_snapshot => ['mp1', 'mp2'], snapname => 'pre',
+    )) =~ s/\s+/ /g;
+    like($ns, qr/clone of CT 5 -> 6 \(from snapshot 'pre'; volumes excluded from it left out\)/,
+        'summary: snapshot-excluded-only clone has its own header');
+    like($ns, qr/left out mp1, mp2 \(excluded from snapshot 'pre', no snapshot data to clone\)/,
+        'summary: lists the left-out volumes and the snapshot');
+    unlike($ns, qr/stock clone|bind-mount container/, 'summary: left-out clone is not reported as stock or bind');
+
+    (my $m = $B->can('_clone_summary')->(
+        vmid => 7, newid => 8, vlabel => '6.1.10', cloned => ['rootfs'],
+        carried => ['mp0'], not_in_snapshot => ['mp3'], snapname => 'pre',
+    )) =~ s/\s+/ /g;
+    like($m, qr/\(bind-mount container\)/, 'summary: mixed carried + left-out uses the bind-mount header');
+    like($m, qr/carried mp0 .*left out mp3 \(excluded from snapshot 'pre'/, 'summary: mixed case lists both');
+}
+
+# === _clone_not_in_snapshot_warning: the left-out-volume nudge ===
+{
+    my $w = $B->can('_clone_not_in_snapshot_warning')->(['mp1', 'mp2'], 'pre');
+    like($w, qr/clone from snapshot 'pre' left out mp1, mp2/, 'left-out warning: names the snapshot and volumes');
+    like($w, qr/BINDSNAP-EXCLUDE/,                            'left-out warning: names the cause');
+    is($B->can('_clone_not_in_snapshot_warning')->([], 'pre'), '', 'left-out warning: empty when nothing was left out');
 }
 
 # === _clone_carry_warning: the carried-bind nudge ===

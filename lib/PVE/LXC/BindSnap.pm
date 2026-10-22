@@ -838,22 +838,33 @@ sub _apply {
 # the whole thing is gated by the @CLONE_GUARDED_FILES checksum.
 # =====================================================================
 
-# Pure decision helper, factored out of _clone_code so the carry/exclude rule is
-# unit-testable off-node (the full closure needs the live PVE stack). Given a config
-# option, its parsed mountpoint type, and the effective BINDSNAP-EXCLUDE set, classify
-# what clone_vm does with it:
-#   'clone-volume' -- a managed (type 'volume') rootfs/mpN: stock clone of the volume
-#   'exclude'      -- a bind/device mpN named in BINDSNAP-EXCLUDE: dropped from the clone
-#   'carry'        -- any other bind/device rootfs/mpN: carried to the clone unchanged
-#   'copy-other'   -- not a mountpoint (netN, hostname, ...): upstream copies it as-is
+# Pure decision helper, called by _clone_code for each rootfs/mpN and unit-testable
+# off-node (the full closure needs the live PVE stack). Given a config option, its parsed
+# mountpoint type, the effective BINDSNAP-EXCLUDE set, and the options snapshot (true for
+# a --snapname clone) and root (true when the caller is root@pam), classify what clone_vm
+# does with it:
+#   'clone-volume'    -- a managed (type 'volume') rootfs/mpN: stock clone of the volume
+#   'not-in-snapshot' -- a managed mpN named in the snapshot's BINDSNAP-EXCLUDE on a
+#                        --snapname clone: the snapshot holds no data for it, so it is
+#                        left out of the clone
+#   'exclude'         -- a bind/device mpN named in BINDSNAP-EXCLUDE: dropped from the clone
+#   'deny'            -- any other bind/device rootfs/mpN when the caller is not root@pam:
+#                        the clone dies (only root@pam may set a non-volume mountpoint,
+#                        PVE::LXC::check_ct_modify_config_perm; stock clone_vm died here)
+#   'carry'           -- any other bind/device rootfs/mpN for root@pam: carried unchanged
+#   'copy-other'      -- not a mountpoint (netN, hostname, ...): upstream copies it as-is
 # rootfs is never in the exclude set (_snap_excludes only yields mpN keys), so a rootfs
-# can only ever be 'clone-volume' or 'carry'.
+# can only ever be 'clone-volume', 'deny' or 'carry'.
 sub _clone_disposition {
-    my ($opt, $type, $excl) = @_;
+    my ($opt, $type, $excl, %o) = @_;
     $excl //= {};
     if (($opt eq 'rootfs') || ($opt =~ m/^mp\d+$/)) {
-        return 'clone-volume' if defined($type) && $type eq 'volume';
+        if (defined($type) && $type eq 'volume') {
+            return 'not-in-snapshot' if $o{snapshot} && $excl->{$opt};
+            return 'clone-volume';
+        }
         return 'exclude' if $excl->{$opt};
+        return 'deny' unless $o{root};
         return 'carry';
     }
     return 'copy-other';
@@ -861,24 +872,31 @@ sub _clone_disposition {
 
 # Task-log summary for a clone, parity with _snapshot_summary: a multi-line block printed
 # into the 'vzclone' worker's task log (newlines preserved). Reports the managed volumes
-# cloned, the bind/device mounts carried (same host path), and the ones BINDSNAP-EXCLUDE
-# dropped. Pure; unit-testable.
+# cloned, the bind/device mounts carried (same host path), the ones BINDSNAP-EXCLUDE
+# dropped, and the managed volumes a --snapname clone left out because the snapshot was
+# taken with them excluded. Pure; unit-testable.
 sub _clone_summary {
     my (%c) = @_;
     my $vlabel   = $c{vlabel} // 'unknown';
     my @cloned   = @{ $c{cloned}   // [] };
     my @carried  = @{ $c{carried}  // [] };
     my @excluded = @{ $c{excluded} // [] };
+    my @not_snap = @{ $c{not_in_snapshot} // [] };
+    my $snapname = $c{snapname} // '';
     my $is_bind  = (@carried || @excluded) ? 1 : 0;
 
     my @lines;
     push @lines, $is_bind
         ? "clone of CT $c{vmid} -> $c{newid} (bind-mount container)"
+        : @not_snap
+        ? "clone of CT $c{vmid} -> $c{newid} (from snapshot '$snapname'; volumes excluded from it left out)"
         : "clone of CT $c{vmid} -> $c{newid} (no bind/device mounts -- stock clone, overlay made no change)";
 
     my $vols = "cloned " . (join(', ', @cloned) || 'nothing');
     $vols .= "; carried " . join(', ', @carried) . " (bind/device, same host path as source)" if @carried;
     $vols .= "; excluded " . join(', ', @excluded) . " (BINDSNAP-EXCLUDE)" if @excluded;
+    $vols .= "; left out " . join(', ', @not_snap)
+        . " (excluded from snapshot '$snapname', no snapshot data to clone)" if @not_snap;
     push @lines, _wrap_kv("  volumes               : ", $vols);
     push @lines, _wrap_kv("  checksum              : ", "validated -- pve-container $vlabel is in the clone tested set");
 
@@ -901,14 +919,32 @@ sub _clone_carry_warning {
          . "    #### BINDSNAP-EXCLUDE: " . join(' ', @c) . "\n";
 }
 
+# The left-out-volume warning for a --snapname clone: a snapshot taken with
+# BINDSNAP-EXCLUDE: mpN (managed volume) has no @snap for mpN, so the clone leaves it out
+# instead of failing on a snapshot volume that does not exist. Returns '' when nothing was
+# left out. Pure; unit-testable.
+sub _clone_not_in_snapshot_warning {
+    my ($list, $snapname) = @_;
+    my @l = @{ $list // [] };
+    return '' unless @l;
+    return "$TAG: clone from snapshot '$snapname' left out " . join(', ', @l) . ": they were excluded\n"
+         . "  from that snapshot (BINDSNAP-EXCLUDE), so it holds no data for them to clone. Clone the\n"
+         . "  live (stopped) CT instead if the clone needs them.\n";
+}
+
 # Return a coderef to install as clone_vm's {code}. This is a copy of upstream's clone_vm
 # body (pve-container 6.1.10, PVE/API2/LXC.pm; byte-identical through 6.1.14) with three
 # marked "pve-bindsnap" changes:
-#   1. compute the effective BINDSNAP-EXCLUDE set from the source/snapshot description, and
-#      collect the carried/excluded bind mounts for the task-log summary.
-#   2. the non-'volume' branch carries the entry to the new CT (or drops it if excluded)
-#      instead of `die "unable to clone mountpoint ..."`.
-#   3. the 'vzclone' worker prints a task-log summary and warns when binds were carried.
+#   1. compute the effective BINDSNAP-EXCLUDE set from the source/snapshot description,
+#      classify each rootfs/mpN with _clone_disposition, and collect the carried/excluded/
+#      left-out mountpoints for the task-log summary. On a --snapname clone, a managed
+#      volume the snapshot was taken with excluded ('not-in-snapshot') has no snapshot
+#      data, so it is left out of the clone; an excluded bind/device mpN is dropped.
+#   2. the non-'volume' branch carries the entry to the new CT -- only for root@pam, the
+#      one user Proxmox lets set a non-volume mountpoint; anyone else still dies, as stock
+#      does -- instead of `die "unable to clone mountpoint ..."`.
+#   3. the 'vzclone' worker prints a task-log summary and warns when binds were carried or
+#      snapshot-excluded volumes were left out.
 # Imported-sub calls from the original (only extract_param) are fully qualified here, since
 # this body runs in package PVE::LXC::BindSnap which does not import them. Because it is a
 # whole-method copy it is only installed on a checksum-validated build (see apply_clone);
@@ -958,9 +994,10 @@ sub _clone_code {
         my $fullclone = {};
         my $vollist = [];
         my $running;
-        # pve-bindsnap: bind/device mounts carried/excluded, collected in the loop below and
-        # reported by $realcmd; declared in the outer scope so the worker closure sees them.
-        my (@clone_carried, @clone_excluded);
+        # pve-bindsnap: bind/device mounts carried/excluded and snapshot-excluded volumes
+        # left out, collected in the loop below and reported by $realcmd; declared in the
+        # outer scope so the worker closure sees them.
+        my (@clone_carried, @clone_excluded, @clone_not_in_snapshot);
 
         my $lock_and_reload = sub {
             my ($vmid, $code) = @_;
@@ -1007,8 +1044,8 @@ sub _clone_code {
             # pve-bindsnap: effective BINDSNAP-EXCLUDE set for this clone. Read from the
             # source CT Notes for a live clone, or the snapshot's own frozen description
             # for a --snapname clone (both are $src_conf->{description} at this scope).
-            # @clone_carried / @clone_excluded (declared in the outer scope) feed the
-            # task-log summary + warning below.
+            # @clone_carried / @clone_excluded / @clone_not_in_snapshot (declared in the
+            # outer scope) feed the task-log summary + warnings below.
             my $clone_excl = _snap_excludes($src_conf->{description}) // {};
 
             my $sharedvm = 1;
@@ -1019,6 +1056,14 @@ sub _clone_code {
 
                 if (($opt eq 'rootfs') || ($opt =~ m/^mp\d+$/)) {
                     my $mp = PVE::LXC::Config->parse_volume($opt, $value);
+
+                    # pve-bindsnap: classify the mountpoint (see _clone_disposition). A
+                    # managed volume a --snapname clone's snapshot was taken without, and an
+                    # excluded bind/device mpN, are left out of the clone entirely.
+                    my $disp = _clone_disposition($opt, $mp->{type}, $clone_excl,
+                        snapshot => ($snapname ? 1 : 0), root => ($authuser eq 'root@pam' ? 1 : 0));
+                    if ($disp eq 'not-in-snapshot') { push @clone_not_in_snapshot, $opt; next; }
+                    if ($disp eq 'exclude') { push @clone_excluded, $opt; next; }
 
                     if ($mp->{type} eq 'volume') {
                         my $volid = $mp->{volume};
@@ -1058,11 +1103,13 @@ sub _clone_code {
                     } else {
                         # pve-bindsnap: bind/device mountpoint has no managed volume to
                         # clone. Carry the entry to the new CT unchanged (same host path/
-                        # device) unless a BINDSNAP-EXCLUDE directive drops it. Replaces
+                        # device) -- root@pam only, since Proxmox lets no one else set a
+                        # non-volume mountpoint; excluded ones were dropped above. Replaces
                         # upstream's `die "unable to clone mountpoint ..."`. The carried
                         # entry is NOT added to %mountpoints, so the forked realcmd never
                         # tries to copy a volume for it.
-                        if ($clone_excl->{$opt}) { push @clone_excluded, $opt; next; }
+                        die "unable to clone mountpoint '$opt' (type $mp->{type}) -- carrying a bind/device mount to a "
+                            . "clone is only allowed for root\@pam\n" if $disp eq 'deny';
                         push @clone_carried, $opt;
                         $newconf->{$opt} = $value;
                     }
@@ -1140,15 +1187,19 @@ sub _clone_code {
 
             # pve-bindsnap: report what the overlay did to the 'vzclone' task log (parity
             # with the snapshot summary), and warn if bind/device mounts were carried (they
-            # share the source's host paths). Printed in the worker so it reaches the task
-            # Output; eval-guarded so it can never affect the clone itself.
+            # share the source's host paths) or snapshot-excluded volumes were left out.
+            # Printed in the worker so it reaches the task Output; eval-guarded so it can
+            # never affect the clone itself.
             eval {
                 print _clone_summary(
                     vmid => $vmid, newid => $newid, vlabel => $vlabel,
                     cloned => [sort keys %$mountpoints],
                     carried => \@clone_carried, excluded => \@clone_excluded,
+                    not_in_snapshot => \@clone_not_in_snapshot, snapname => $snapname,
                 );
                 _task_warn(_clone_carry_warning(\@clone_carried)) if @clone_carried;
+                _task_warn(_clone_not_in_snapshot_warning(\@clone_not_in_snapshot, $snapname))
+                    if @clone_not_in_snapshot;
                 1;
             };
 
