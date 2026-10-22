@@ -139,6 +139,16 @@ mp0 (bind/device, same host path as source); excluded mp1 (BINDSNAP-EXCLUDE)`, s
 confirm what went in and what was left out. It's task-log only and never clutters an
 interactive `pct`.
 
+## Limits
+
+- **Rollback can orphan a replaced volume.** Before rewinding, rollback looks for live
+  volumes the snapshot doesn't know (so it can keep them as `unusedN`). That scan walks the
+  **live** config under the **live** Notes' exclude set, so a live `mpN` volume that the
+  current Notes exclude and that differs from the snapshot's `mpN` (e.g. a disk replaced or
+  added after the snapshot) is not added as `unusedN`. After the rollback it is no longer
+  referenced by the config and stays on storage as an orphan; find it with `pvesm list
+  <storage>` and remove it manually.
+
 ## Why it's built this way
 
 - **A directive in the Notes, not a key on the `mpN:` line.** Proxmox parses every
