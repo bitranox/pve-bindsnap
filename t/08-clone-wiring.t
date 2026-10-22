@@ -57,7 +57,8 @@ my $B = 'PVE::LXC::BindSnap';
     is($d->('mp1', 'volume', { mp1 => 1 }, snapshot => 1), 'not-in-snapshot',
         'snapshot clone: a managed mpN excluded from the snapshot is left out');
     is($d->('rootfs', 'volume', {}, snapshot => 1), 'clone-volume', 'snapshot clone: managed rootfs is cloned');
-    is($d->('rootfs', 'bind', {}, root => 1), 'carry', 'rootfs is never excluded (carried even if bind)');
+    is($d->('rootfs', 'bind', {}, root => 1), 'deny',
+        'bind rootfs is denied even for root@pam (never carried)');
     is($d->('rootfs', 'bind', {}), 'deny', 'bind rootfs is denied for a non-root caller');
     is($d->('net0', undef, {}),     'copy-other', 'netN is copied as-is');
     is($d->('hostname', undef, {}), 'copy-other', 'a non-mountpoint option is copied as-is');

@@ -42,7 +42,7 @@ is left untouched.
 
 | What's in the container config  | In the snapshot?         | In a clone?                  | Notes                                                                                                                                         |
 |---------------------------------|--------------------------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| `rootfs` (the root disk)        | **Yes**                  | **Yes** (copied)             | Proxmox-managed volume; always kept                                                                                                           |
+| `rootfs` (the root disk)        | **Yes**                  | **Yes** (copied)             | Proxmox-managed volume; always kept. A bind/device rootfs is never carried (clone refused, as stock)                                          |
 | `mpN`: a storage volume         | **Yes**, unless excluded | **Yes** (copied)             | Managed volume (e.g. a data disk); a `--snapname` clone leaves it out if that bind-CT snapshot excluded it                                    |
 | `mpN`: a bind mount (host path) | **No** (setting kept)    | **Carried**, unless excluded | Only the mount *setting* is snapshotted/cloned and restored on rollback;<br>the host *data* is never snapshotted, cloned, or rolled back      |
 | `devN`: a passthrough device    | **No** (setting kept)    | **Carried**                  | Only the mount *setting* is snapshotted/cloned and restored on rollback;<br>the host device/data is never snapshotted, cloned, or rolled back |
@@ -266,7 +266,10 @@ bind/device mounts is completely stock, on any version.
 Carrying a bind/device mount to a clone needs `root@pam`, because Proxmox lets no other user
 set a non-volume mountpoint. Any other user gets `unable to clone mountpoint 'mp0' (type
 bind) -- carrying a bind/device mount to a clone is only allowed for root@pam`; clone as
-`root@pam`, or exclude the mount as above.
+`root@pam`, or exclude the mount as above. A bind/device `rootfs` is never carried, not even
+for `root@pam`: the clone would share the source's root directory, and the clone's setup
+(hostname, machine-id, network) would rewrite the *source* container. Such a clone gets the
+stock refusal, `unable to clone mountpoint 'rootfs' (type bind)`.
 
 A note on running containers and snapshots: Proxmox already requires `--snapname` to fully
 clone a *running* container ("Full clone of a running container is only possible from a

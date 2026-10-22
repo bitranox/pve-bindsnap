@@ -24,6 +24,9 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 
 - A clone carries bind/device mounts only for `root@pam`. Any other user gets the stock-style
   refusal, matching Proxmox's rule that only `root@pam` may set a non-volume mountpoint.
+- A clone never carries a bind/device `rootfs`, not even for `root@pam`: the clone would share
+  the source's root directory, and its setup would rewrite the source's hostname, machine-id
+  and network. Every caller gets the stock refusal.
 
 ### Fixed
 

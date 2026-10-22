@@ -911,10 +911,10 @@ sub _apply {
 # in place: PVE::API2::LXC->map_method_by_name('clone_vm') returns the shared $info
 # hashref used by every dispatch path (GUI/API and pct CLI), so replacing $info->{code}
 # overrides the dispatched code everywhere. We install a COPY of upstream's clone_vm body
-# with a single change (bind/device mountpoints carried-or-excluded instead of die; the
-# carry is root@pam only, anyone else still dies; a --snapname clone leaves out a managed
-# volume the bind-CT snapshot excluded), so the whole thing is gated by the clone_vm block
-# checksum.
+# with a single change (bind/device mpN carried-or-excluded instead of die; the carry is
+# root@pam only, anyone else still dies; a bind/device rootfs still dies for everyone; a
+# --snapname clone leaves out a managed volume the bind-CT snapshot excluded), so the whole
+# thing is gated by the clone_vm block checksum.
 # =====================================================================
 
 # Pure decision helper, called by _clone_code for each rootfs/mpN and unit-testable
@@ -927,13 +927,16 @@ sub _apply {
 #                        --snapname clone: the snapshot holds no data for it, so it is
 #                        left out of the clone
 #   'exclude'         -- a bind/device mpN named in BINDSNAP-EXCLUDE: dropped from the clone
-#   'deny'            -- any other bind/device rootfs/mpN when the caller is not root@pam:
-#                        the clone dies (only root@pam may set a non-volume mountpoint,
-#                        PVE::LXC::check_ct_modify_config_perm; stock clone_vm died here)
-#   'carry'           -- any other bind/device rootfs/mpN for root@pam: carried unchanged
+#   'deny'            -- a bind/device rootfs (for every caller: carrying it would make the
+#                        clone share the source's root dir, and post_clone_hook would then
+#                        rewrite hostname/machine-id/network in the SOURCE CT), or any other
+#                        bind/device mpN when the caller is not root@pam (only root@pam may
+#                        set a non-volume mountpoint, PVE::LXC::check_ct_modify_config_perm):
+#                        the clone dies, as stock clone_vm did
+#   'carry'           -- any other bind/device mpN for root@pam: carried unchanged
 #   'copy-other'      -- not a mountpoint (netN, hostname, ...): upstream copies it as-is
 # rootfs is never in the exclude set (_snap_excludes only yields mpN keys), so a rootfs
-# can only ever be 'clone-volume', 'deny' or 'carry'.
+# can only ever be 'clone-volume' or 'deny'.
 sub _clone_disposition {
     my ($opt, $type, $excl, %o) = @_;
     $excl //= {};
@@ -942,6 +945,7 @@ sub _clone_disposition {
             return 'not-in-snapshot' if $o{snapshot} && $excl->{$opt};
             return 'clone-volume';
         }
+        return 'deny' if $opt eq 'rootfs';
         return 'exclude' if $excl->{$opt};
         return 'deny' unless $o{root};
         return 'carry';
@@ -1019,9 +1023,10 @@ sub _clone_not_in_snapshot_warning {
 #      left-out mountpoints for the task-log summary. On a --snapname clone, a managed
 #      volume the snapshot was taken with excluded ('not-in-snapshot') has no snapshot
 #      data, so it is left out of the clone; an excluded bind/device mpN is dropped.
-#   2. the non-'volume' branch carries the entry to the new CT -- only for root@pam, the
-#      one user Proxmox lets set a non-volume mountpoint; anyone else still dies, as stock
-#      does -- instead of `die "unable to clone mountpoint ..."`.
+#   2. the non-'volume' branch carries a bind/device mpN to the new CT -- only for
+#      root@pam, the one user Proxmox lets set a non-volume mountpoint; anyone else still
+#      dies, as stock does -- instead of `die "unable to clone mountpoint ..."`. A bind/
+#      device rootfs is never carried and dies with the stock message for every caller.
 #   3. the 'vzclone' worker prints a task-log summary and warns when binds were carried or
 #      snapshot-excluded volumes were left out.
 # Imported-sub calls from the original (only extract_param) are fully qualified here, since
@@ -1185,10 +1190,13 @@ sub _clone_code {
                         # pve-bindsnap: bind/device mountpoint has no managed volume to
                         # clone. Carry the entry to the new CT unchanged (same host path/
                         # device) -- root@pam only, since Proxmox lets no one else set a
-                        # non-volume mountpoint; excluded ones were dropped above. Replaces
-                        # upstream's `die "unable to clone mountpoint ..."`. The carried
-                        # entry is NOT added to %mountpoints, so the forked realcmd never
-                        # tries to copy a volume for it.
+                        # non-volume mountpoint; excluded ones were dropped above. A bind/
+                        # device rootfs is never carried: it keeps upstream's die as-is.
+                        # Replaces upstream's `die "unable to clone mountpoint ..."` for mpN.
+                        # The carried entry is NOT added to %mountpoints, so the forked
+                        # realcmd never tries to copy a volume for it.
+                        die "unable to clone mountpoint '$opt' (type $mp->{type})\n"
+                            if $disp eq 'deny' && $opt eq 'rootfs';
                         die "unable to clone mountpoint '$opt' (type $mp->{type}) -- carrying a bind/device mount to a "
                             . "clone is only allowed for root\@pam\n" if $disp eq 'deny';
                         push @clone_carried, $opt;

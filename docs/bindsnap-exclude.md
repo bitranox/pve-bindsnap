@@ -101,7 +101,11 @@ clone that carries any bind/device mount also raises a `TASK WARNINGS` naming th
 non-volume mountpoint, so for any other user the clone refuses with `unable to clone
 mountpoint 'mp0' (type bind) -- carrying a bind/device mount to a clone is only allowed for
 root@pam`. Clone as `root@pam`, or name the mount in `BINDSNAP-EXCLUDE` so the clone drops it
-instead (an excluded mount is never carried, so the rule doesn't apply to it).
+instead (an excluded mount is never carried, so the rule doesn't apply to it). A bind/device
+`rootfs` is never carried, not even for `root@pam` (the clone would share the source's root
+directory, and setting up the clone would rewrite the *source* container's hostname,
+machine-id and network); it gets the stock refusal, `unable to clone mountpoint 'rootfs' (type
+bind)`, and `rootfs` can't be excluded.
 
 **A `--snapname` clone leaves out volumes the snapshot excluded.** If a snapshot of a
 bind-mount container was taken with `BINDSNAP-EXCLUDE: mp1` and `mp1` is a managed volume, the

@@ -141,7 +141,9 @@ pve-container or use `zfs snapshot` directly.
 at the SAME host path as the source** (not a copy). The clone task finishes as a yellow
 `TASK WARNINGS` naming the carried mounts, because the two CTs then share that host data.
 Carrying a bind/device mount needs `root@pam`; any other user gets `... only allowed for
-root@pam` (clone as root or exclude the mount). In a `--snapname` clone, a managed volume the
+root@pam` (clone as root or exclude the mount). A bind/device `rootfs` is NEVER carried, not even
+for root@pam (the clone would share, and rewrite, the source's root dir): stock refusal
+`unable to clone mountpoint 'rootfs' (type bind)`. In a `--snapname` clone, a managed volume the
 snapshot was taken without (`BINDSNAP-EXCLUDE`) is left out: the snapshot holds no data for it.
 
 To stop the clone inheriting a bind/data mount, add `#### BINDSNAP-EXCLUDE: mp0` to the **source**
