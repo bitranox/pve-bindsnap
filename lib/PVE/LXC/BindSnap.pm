@@ -911,8 +911,10 @@ sub _apply {
 # in place: PVE::API2::LXC->map_method_by_name('clone_vm') returns the shared $info
 # hashref used by every dispatch path (GUI/API and pct CLI), so replacing $info->{code}
 # overrides the dispatched code everywhere. We install a COPY of upstream's clone_vm body
-# with a single change (bind/device mountpoints carried-or-excluded instead of die), so
-# the whole thing is gated by the clone_vm block checksum.
+# with a single change (bind/device mountpoints carried-or-excluded instead of die; the
+# carry is root@pam only, anyone else still dies; a --snapname clone leaves out a managed
+# volume the bind-CT snapshot excluded), so the whole thing is gated by the clone_vm block
+# checksum.
 # =====================================================================
 
 # Pure decision helper, called by _clone_code for each rootfs/mpN and unit-testable
