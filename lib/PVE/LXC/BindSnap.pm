@@ -392,6 +392,17 @@ sub _conf_needs_overlay {
     return $found;
 }
 
+# The BINDSNAP-EXCLUDE set a conf's own description actually applied: its directive only
+# when the conf has a bind/device mountpoint (the same _conf_needs_overlay test
+# snapshot_create makes), else {}. A plain CT is snapshotted stock with every volume, so a
+# directive in its snapshot's description was never applied and must not make delete,
+# rollback or a --snapname clone skip a volume that has snapshot data. Never dies.
+sub _conf_excludes {
+    my ($class, $conf, $orig_fvf) = @_;
+    return {} if !_conf_needs_overlay($class, $conf, $orig_fvf);
+    return _snap_excludes($conf->{description}) // {};
+}
+
 # Sort a CT's (or a snapshot's) mountpoints into three buckets via the live iterator:
 # managed volumes kept, managed volumes the operator excluded (BINDSNAP-EXCLUDE), and
 # bind/device mounts skipped. Shared by both task-log summaries so the rule lives in one
@@ -1106,10 +1117,13 @@ sub _clone_code {
 
             # pve-bindsnap: effective BINDSNAP-EXCLUDE set for this clone. Read from the
             # source CT Notes for a live clone, or the snapshot's own frozen description
-            # for a --snapname clone (both are $src_conf->{description} at this scope).
+            # for a --snapname clone (both are $src_conf->{description} at this scope), and
+            # only if that conf has a bind/device mountpoint: snapshot_create applied the
+            # directive only then, so a plain CT's snapshot holds every volume.
             # @clone_carried / @clone_excluded / @clone_not_in_snapshot (declared in the
             # outer scope) feed the task-log summary + warnings below.
-            my $clone_excl = _snap_excludes($src_conf->{description}) // {};
+            my $clone_excl = _conf_excludes('PVE::LXC::Config', $src_conf,
+                PVE::LXC::Config->can('foreach_volume_full'));
 
             my $sharedvm = 1;
             for my $opt (sort keys %$src_conf) {

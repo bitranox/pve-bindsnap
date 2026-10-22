@@ -63,6 +63,27 @@ my $B = 'PVE::LXC::BindSnap';
     is($d->('hostname', undef, {}), 'copy-other', 'a non-mountpoint option is copied as-is');
 }
 
+# === _conf_excludes: a snapshot's BINDSNAP-EXCLUDE only counts if snapshot_create applied it ===
+# snapshot_create filters only a CT with a bind/device mountpoint; a plain CT is snapshotted
+# stock with every volume, so a directive in its description must not leave mp1 out.
+{
+    my $fvf  = sub { my ($cls, $conf, $opts, $func) = @_; $func->(@$_) for @{ $conf->{_vols} }; };
+    my $ce   = $B->can('_conf_excludes') or BAIL_OUT('_conf_excludes missing');
+    my $d    = $B->can('_clone_disposition');
+    my $desc = "#### BINDSNAP-EXCLUDE: mp1";
+    my $plain = { description => $desc, _vols => [['rootfs', {type=>'volume'}], ['mp1', {type=>'volume'}]] };
+    my $bind  = { description => $desc,
+        _vols => [['rootfs', {type=>'volume'}], ['mp1', {type=>'volume'}], ['mp2', {type=>'bind'}]] };
+    is_deeply($ce->('LXC', $plain, $fvf), {}, 'plain conf: directive not applied -> empty exclude set');
+    is_deeply($ce->('LXC', $bind, $fvf), { mp1 => 1 }, 'bind conf: directive applied -> its exclude set');
+    is($d->('mp1', 'volume', $ce->('LXC', $plain, $fvf), snapshot => 1), 'clone-volume',
+        'snapshot clone of a plain CT with the directive: mp1 is cloned (it has snapshot data)');
+    is($d->('mp1', 'volume', $ce->('LXC', $bind, $fvf), snapshot => 1), 'not-in-snapshot',
+        'snapshot clone of a bind CT with the directive: mp1 is left out');
+    is_deeply($ce->('LXC', { description => $desc }, sub { die "boom\n" }), {},
+        'a dying iterator yields an empty set (never dies)');
+}
+
 # === _clone_code returns an installable coderef ===
 is(ref($B->can('_clone_code')->()), 'CODE', '_clone_code() returns a CODE ref to install as clone_vm {code}');
 
