@@ -27,10 +27,15 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 
 ### Fixed
 
-- A `--snapname` clone leaves out managed volumes that the snapshot excluded (they have no
-  snapshot data) instead of failing. The task summary names each one, and the task warns about
-  it.
-- `_known_good_list` sorts versions numerically rather than as strings.
+- A `--snapname` clone from a snapshot of a bind-mount CT that excluded managed volumes
+  leaves them out (they have no snapshot data) instead of failing. The task summary names
+  each one, and the task warns about it. A plain CT's snapshot, taken stock with every
+  volume, clones all of them even if its description has a `BINDSNAP-EXCLUDE` directive.
+- Delete and rollback of a plain CT's snapshot no longer skip a volume named in a
+  `BINDSNAP-EXCLUDE` directive that the snapshot never applied. Rollback had left the volume
+  un-rewound, and delete had left its snapshot behind.
+- `_known_good_list` sorts versions numerically rather than as strings, and orders builds with
+  the same version by checksum.
 
 ### Changed
 

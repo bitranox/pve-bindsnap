@@ -100,7 +100,10 @@ the clone unchanged (it points at the same host path/device) instead of dying, u
 `BINDSNAP-EXCLUDE` directive drops it. Managed volumes and the rootfs clone exactly as
 stock. A carried bind mount is not added to the clone's volume list, so the forked worker
 never tries to copy a volume for it; it simply appears in the new container's config and
-`mount_all` mounts the same host path, as it did on the source.
+`mount_all` mounts the same host path, as it did on the source. The carry is for `root@pam`
+only, since Proxmox lets no other user set a non-volume mountpoint; anyone else still gets
+the die, extended to say so. A `--snapname` clone of a bind-mount container also leaves out a
+managed volume that snapshot excluded, since the snapshot holds no data for it to clone.
 
 The override mechanism differs from the snapshot one, because `clone_vm` is registered as an
 anonymous `register_method` *closure*, not a named sub: there is nothing to redefine by

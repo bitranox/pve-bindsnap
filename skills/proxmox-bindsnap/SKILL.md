@@ -162,7 +162,7 @@ snapshots and in the CT config (`zfs list -t snapshot | grep subvol-<vmid>`).
 | Symptom                                                        | Cause / fix                                                                                                                            |
 |----------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
 | Snapshot button greyed for a bind-mount CT                     | Not installed, or daemons not restarted. Install (section 1), verify (section 2).                                                      |
-| `unable to clone mountpoint 'mpN' (type bind)`                 | Clone override not active: not installed, OR build untested (clone stays stock). Install / get the build vetted (section 5).           |
+| `unable to clone mountpoint 'mpN' (type bind)` (nothing after) | Clone override not active: not installed, OR build untested (clone stays stock). Install / get the build vetted (section 5).           |
 | `... only allowed for root@pam` (clone refused)                | Non-root caller; a bind/device mount can only be carried by `root@pam`. Clone as root@pam, or `BINDSNAP-EXCLUDE: mpN` it (section 6).  |
 | `CT <vmid> is running ... stop ... or BINDSNAP-FORCE-RUNNING`  | Stop the CT, or add `BINDSNAP-FORCE-RUNNING` (section 4).                                                                              |
 | `pve-container <ver> is ... untested ... BINDSNAP-UNSUPPORTED` | Build not in the table. Opt in to TEST and get it vetted (section 5).                                                                  |

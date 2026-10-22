@@ -103,12 +103,15 @@ mountpoint 'mp0' (type bind) -- carrying a bind/device mount to a clone is only 
 root@pam`. Clone as `root@pam`, or name the mount in `BINDSNAP-EXCLUDE` so the clone drops it
 instead (an excluded mount is never carried, so the rule doesn't apply to it).
 
-**A `--snapname` clone leaves out volumes the snapshot excluded.** If the snapshot was taken
-with `BINDSNAP-EXCLUDE: mp1` and `mp1` is a managed volume, the snapshot holds no data for it,
-so there is nothing to clone. The clone leaves `mp1` out (instead of failing on a snapshot
-volume that doesn't exist) and says so: the summary line reads `left out mp1 (excluded from
-snapshot 'snap1', no snapshot data to clone)` and a `TASK WARNINGS` explains it. Clone the
-live (stopped) container instead if the copy needs that volume.
+**A `--snapname` clone leaves out volumes the snapshot excluded.** If a snapshot of a
+bind-mount container was taken with `BINDSNAP-EXCLUDE: mp1` and `mp1` is a managed volume, the
+snapshot holds no data for it, so there is nothing to clone. The clone leaves `mp1` out
+(instead of failing on a snapshot volume that doesn't exist) and says so: the summary line
+reads `left out mp1 (excluded from snapshot 'snap1', no snapshot data to clone)` and a `TASK
+WARNINGS` explains it. Clone the live (stopped) container instead if the copy needs that
+volume. A plain container's snapshot was taken stock with every volume (see Scope), so a
+directive in its description leaves nothing out of the clone, and none out of a rollback or
+delete either.
 
 ## What you see
 
