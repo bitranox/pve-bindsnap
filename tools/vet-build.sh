@@ -6,13 +6,19 @@
 # ---------------------------------------------------------------------
 # Makes vetting a new pve-container release mechanical: downloads the .deb packages from
 # the Proxmox mirror, extracts them into temp dirs (nothing from them is ever executed;
-# perl only reads the files, and only the repo's own lib/ is on its @INC), and computes
-# the same two checksums the overlay checks at load time by calling the module itself:
+# perl only reads the files, and the extracted packages are never on its @INC -- it loads
+# the module from the repo's lib/), and computes the same two checksums the overlay checks
+# at load time by calling the module itself:
 #   - the snapshot guard: combined sha256 over Config.pm + AbstractConfig.pm
 #   - the clone guard:    sha256 of the clone_vm block of API2/LXC.pm
 # Each is looked up in the module's known-good / known-bad tables and reported as
 # known-good / known-bad / new. With a reference version, it also diffs Config.pm and the
 # clone_vm block against that (already vetted) build, to see what changed upstream.
+#
+# The downloads are NOT signature-verified (no apt/gpg check), so the output is advisory.
+# Before adding a hash to a known-good table, confirm it on a node's apt-installed package:
+# the overlay's journal line, or the manual commands in docs/checksum-guard.md and
+# docs/compatible-versions.md.
 #
 # Usage:   tools/vet-build.sh <pve-container-version> [<reference-version>]
 #   e.g.   tools/vet-build.sh 6.1.14 6.1.12
@@ -22,7 +28,8 @@
 #          GUEST_COMMON  libpve-guest-common-perl version (AbstractConfig.pm); default: the
 #                        newest one listed in the component's binary-amd64/Packages.gz
 #                        (used for BOTH builds, so only Config.pm / API2/LXC.pm differ)
-# Needs: bash, curl, gzip, ar, tar, awk, diff, perl (no dpkg-deb; works on Linux and macOS).
+# Needs: bash, curl, gzip, xz, ar, tar, awk, diff, mktemp, sort -V, perl (no dpkg-deb;
+#        works on Linux and macOS).
 # =====================================================================
 set -euo pipefail
 
