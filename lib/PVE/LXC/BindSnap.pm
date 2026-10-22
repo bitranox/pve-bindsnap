@@ -101,7 +101,8 @@ my @GUARDED_FILES = (
 #     "$(sha256sum /usr/share/perl5/PVE/AbstractConfig.pm | awk '{print $1}')" \
 #   | sha256sum | awk '{print $1}'
 # To add a new release: test it (see README), then paste its combined sha256 here.
-my %KNOWN_GOOD_CHECKSUMS = (
+# Package variables (as are the three below) so tests can read them; nothing writes them.
+our %KNOWN_GOOD_CHECKSUMS = (
     '1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106' => '6.1.10',
     '29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f' => '6.1.12',
     '04aada64089cbf97d1598ea0b102aa61d38bfd456526be4fff5ce4289e225a77' => '6.1.14',
@@ -113,7 +114,7 @@ my %KNOWN_GOOD_CHECKSUMS = (
 # (data loss, broken snapshots). Starts empty; a maintainer adds an entry when a failure
 # is reported and confirmed. Checked BEFORE the known-good/BINDSNAP-UNSUPPORTED logic, so a bad
 # checksum always loses even if it were somehow also listed as good.
-my %KNOWN_BAD_CHECKSUMS = (
+our %KNOWN_BAD_CHECKSUMS = (
     # 'sha256...' => 'pve-container X.Y.Z: snapshot_delete corrupts bind-mount CTs',
 );
 
@@ -140,11 +141,11 @@ my $CLONE_GUARDED_FILE = 'PVE/API2/LXC.pm';    # %INC key -> /usr/share/perl5/PV
 # version (good) or a reason (bad). Only the checksum decides; the version is a human label.
 # One block hash covers 6.1.10, 6.1.12 and 6.1.14: their clone_vm is byte-identical
 # (verified from the published packages).
-my %KNOWN_GOOD_CLONE_CHECKSUMS = (
+our %KNOWN_GOOD_CLONE_CHECKSUMS = (
     '7a10c90b920b56e645bba6798daefc49ca32150cf670551a81176e2658aa56c8' => '6.1.10-6.1.14',
 );
 
-my %KNOWN_BAD_CLONE_CHECKSUMS = (
+our %KNOWN_BAD_CLONE_CHECKSUMS = (
     # 'sha256...' => 'pve-container X.Y.Z: clone_vm mishandles carried bind mounts',
 );
 
