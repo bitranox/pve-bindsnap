@@ -25,6 +25,7 @@ jobs:
         run: |
           perl -c lib/PVE/LXC/BindSnap.pm
           perl -c lib/PVE/API2/LXC.wrapper.pm
+          perl -c lib/PVE/LXC/Config.wrapper.pm
 
       - name: Unit tests
         run: prove -I lib t/
@@ -39,11 +40,11 @@ jobs:
           head -1 skills/proxmox-bindsnap/SKILL.md | grep -qx -- '---'
 
       - name: Shellcheck
-        run: shellcheck install.sh uninstall.sh
+        run: shellcheck install.sh uninstall.sh tools/vet-build.sh
 
       # shfmt is not preinstalled on the runner; fetch a pinned release binary.
       - name: Shfmt
         run: |
           curl -fsSL https://github.com/mvdan/sh/releases/download/v3.10.0/shfmt_v3.10.0_linux_amd64 -o shfmt
           chmod +x shfmt
-          ./shfmt -i 4 -d install.sh uninstall.sh
+          ./shfmt -i 4 -d install.sh uninstall.sh tools/vet-build.sh
