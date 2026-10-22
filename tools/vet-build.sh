@@ -63,8 +63,10 @@ use warnings;
 BEGIN {
     open(my $olderr, '>&', \*STDERR) or die "dup STDERR: $!";
     open(STDERR, '>', '/dev/null')   or die "redir STDERR: $!";
-    require PVE::LXC::BindSnap;
+    my $err;
+    { local $@; eval { require PVE::LXC::BindSnap; 1 } or $err = $@; }
     open(STDERR, '>&', $olderr)      or die "restore STDERR: $!";
+    die $err if defined $err;
 }
 my $m = 'PVE::LXC::BindSnap';
 my ($mode, @a) = @ARGV;
