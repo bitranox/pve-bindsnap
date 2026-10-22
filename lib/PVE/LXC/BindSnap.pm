@@ -565,11 +565,12 @@ sub _vercmp {
 }
 
 # Indented "pve-container <ver>  <checksum>" lines for every known-good build, in version
-# order, for the multi-line refusal explanations (printed to the task log, which preserves
-# newlines). Pure, unit-testable.
+# order (ties broken by checksum, so equal labels sort deterministically), for the
+# multi-line refusal explanations (printed to the task log, which preserves newlines).
+# Pure, unit-testable.
 sub _known_good_list {
     my @l = map { "    pve-container $KNOWN_GOOD_CHECKSUMS{$_}  $_" }
-        sort { _vercmp($KNOWN_GOOD_CHECKSUMS{$a}, $KNOWN_GOOD_CHECKSUMS{$b}) }
+        sort { _vercmp($KNOWN_GOOD_CHECKSUMS{$a}, $KNOWN_GOOD_CHECKSUMS{$b}) || $a cmp $b }
         keys %KNOWN_GOOD_CHECKSUMS;
     return @l ? join("\n", @l) : "    (none recorded)";
 }

@@ -70,6 +70,16 @@ like($kgl->(), qr/1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa61
       . "    pve-container 6.1.10  aaaa\n"
       . "    pve-container 6.2.0  cccc",
         'lists known-good builds in numeric version order');
+
+    # equal labels (two builds of one version) tie-break on the checksum, deterministically
+    local %PVE::LXC::BindSnap::KNOWN_GOOD_CHECKSUMS = (
+        zzzz => '6.1.10', mmmm => '6.1.10', aaaa => '6.1.10',
+    );
+    is($kgl->(),
+        "    pve-container 6.1.10  aaaa\n"
+      . "    pve-container 6.1.10  mmmm\n"
+      . "    pve-container 6.1.10  zzzz",
+        'equal version labels sort by checksum');
 }
 
 # --- refusal messages (pure, so unit-testable). They are the FULL multi-line explanation
