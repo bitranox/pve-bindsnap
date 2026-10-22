@@ -44,15 +44,19 @@ added here. A newer overlay release may already cover your build, so check this 
 
 `pct clone` of a bind-mount CT is blocked by a different upstream code path
 (`PVE::API2::LXC::clone_vm`), so the overlay gates the clone fix on its **own** content
-checksum: the sha256 of `PVE/API2/LXC.pm` alone (the file whose `clone_vm` body the overlay
-copies). The module's `%KNOWN_GOOD_CLONE_CHECKSUMS` / `%KNOWN_BAD_CLONE_CHECKSUMS` tables are
+checksum: the sha256 of the `clone_vm` method block of `PVE/API2/LXC.pm` (from its
+`__PACKAGE__->register_method({` line to its closing `});`, the code the overlay copies),
+not of the whole file, so unrelated upstream changes elsewhere in `LXC.pm` keep the same
+hash. The module's `%KNOWN_GOOD_CLONE_CHECKSUMS` / `%KNOWN_BAD_CLONE_CHECKSUMS` tables are
 authoritative; this section mirrors them. On a non-validated build the clone override is **not**
 installed and `pct clone` keeps stock behaviour (bind mounts still rejected) -- no regression.
 
 Recompute the manual way (must equal what the overlay logs):
 
 ```
-sha256sum /usr/share/perl5/PVE/API2/LXC.pm | awk '{print $1}' | sha256sum | awk '{print $1}'
+api=/usr/share/perl5/PVE/API2/LXC.pm
+[ -e "$api.distrib" ] && api="$api.distrib"
+awk '/^__PACKAGE__->register_method\(\{$/{buf=""} {buf=buf $0 "\n"} /^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' "$api" | sha256sum | awk '{print $1}'
 ```
 
 ### Supported (tested-good)
@@ -60,14 +64,12 @@ sha256sum /usr/share/perl5/PVE/API2/LXC.pm | awk '{print $1}' | sha256sum | awk 
 On these builds, `pct clone` carries bind/device mountpoints to the new CT (and honours
 `BINDSNAP-EXCLUDE`).
 
-| pve-container | combined sha256                                                    | notes                                             |
-|---------------|--------------------------------------------------------------------|---------------------------------------------------|
-| 6.1.10        | `8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198` | tested on PVE 9.2                                 |
-| 6.1.12        | `1ace1c4de506b79bf165f2c5aeaa8d8c4af35b6a9d91ce1ea24e5742f7e7afc7` | tested on PVE 9.2.6                               |
-| 6.1.14        | `2ea44bdd7dd321e593b0ede65d0a8b01126fff733bb0591da84a4656a43b635a` | source-reviewed, checksum confirmed on PVE 9.2.20 |
+| pve-container | clone_vm sha256                                                    | notes                                                    |
+|---------------|--------------------------------------------------------------------|----------------------------------------------------------|
+| 6.1.10-6.1.14 | `7a10c90b920b56e645bba6798daefc49ca32150cf670551a81176e2658aa56c8` | tested on PVE 9.2 and 9.2.6; 6.1.14 source-reviewed      |
 
 ### Hard-blocked (known-bad)
 
-| pve-container | combined sha256 | reason |
+| pve-container | clone_vm sha256 | reason |
 |---------------|-----------------|--------|
 | (none yet)    | -               | -      |

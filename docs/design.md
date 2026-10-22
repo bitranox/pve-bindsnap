@@ -116,7 +116,8 @@ One thing the clone override does that the snapshot overlay does not: it install
 of upstream's `clone_vm` body (with the one change), rather than wrapping live coderefs.
 That is unavoidable, because the die sits inline in a closure with no seam to wrap. It also
 makes the override version-fragile, so it has its **own** checksum guard, separate from the
-snapshot guard and hashing only `PVE/API2/LXC.pm` (the file the copy comes from). On a build
+snapshot guard and hashing only the `clone_vm` method block of `PVE/API2/LXC.pm` (the code
+the copy comes from, including its permissions and parameter schema). On a build
 whose `clone_vm` the copy hasn't been vetted against, the override is simply not installed:
 `clone_vm` stays stock (bind clones refused, the original behaviour), so there is never a
 regression and never a stale copy dispatched against a changed Proxmox. A `pve-container`

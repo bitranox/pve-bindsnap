@@ -121,24 +121,27 @@ my %KNOWN_BAD_CHECKSUMS = (
 # `pct clone` of a bind-mount CT dies in PVE::API2::LXC::clone_vm (an inline die on a
 # non-'volume' mountpoint), a different module and code path than the diverted
 # PVE::LXC::Config. We override clone_vm by replacing a COPY of its whole method body
-# (see _clone_code) -- so the override MUST be gated by the byte-content of the file we
-# copied from. We hash ONLY PVE/API2/LXC.pm: that is the precise load-bearing surface
-# (the methods it calls -- Config->set_lock/write_config/parse_volume -- are stable
-# named interfaces). If the checksum is not known-good, we leave clone_vm stock (binds
-# stay blocked, exactly as upstream -- no regression on an untested build).
+# (see _clone_code) -- so the override MUST be gated by the byte-content of what we
+# copied. We hash ONLY the clone_vm register_method block of PVE/API2/LXC.pm (see
+# _clone_block): from its `__PACKAGE__->register_method({` line to its closing `});`,
+# so its permissions and parameter schema are covered too. That block is exactly the
+# copied surface; the rest of the file is code we do not copy, and the helpers the body
+# calls (Config->set_lock/write_config/parse_volume, ...) live in other modules the whole
+# file never covered either -- hashing the whole file only forced a release on every
+# unrelated upstream change. If the checksum is not known-good, we leave clone_vm stock
+# (binds stay blocked, exactly as upstream -- no regression on an untested build).
 # Recompute the manual way (must equal what the overlay logs):
-#   sha256sum /usr/share/perl5/PVE/API2/LXC.pm | awk '{print $1}' | sha256sum | awk '{print $1}'
-my @CLONE_GUARDED_FILES = (
-    'PVE/API2/LXC.pm',          # %INC key -> /usr/share/perl5/PVE/API2/LXC.pm
-);
+#   awk '/^__PACKAGE__->register_method\(\{$/{buf=""} {buf=buf $0 "\n"} /^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' \
+#     /usr/share/perl5/PVE/API2/LXC.pm | sha256sum | awk '{print $1}'
+my $CLONE_GUARDED_FILE = 'PVE/API2/LXC.pm';    # %INC key -> /usr/share/perl5/PVE/API2/LXC.pm
 
 # Known-good / known-bad tables for the CLONE override, same semantics as the snapshot
-# tables: KEY = combined sha256 of @CLONE_GUARDED_FILES, VALUE = pve-container version
-# (good) or a reason (bad). Only the checksum decides; the version is a human label.
+# tables: KEY = sha256 of the clone_vm block (see _clone_checksum), VALUE = pve-container
+# version (good) or a reason (bad). Only the checksum decides; the version is a human label.
+# One block hash covers 6.1.10, 6.1.12 and 6.1.14: their clone_vm is byte-identical
+# (verified from the published packages).
 my %KNOWN_GOOD_CLONE_CHECKSUMS = (
-    '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198' => '6.1.10',
-    '1ace1c4de506b79bf165f2c5aeaa8d8c4af35b6a9d91ce1ea24e5742f7e7afc7' => '6.1.12',
-    '2ea44bdd7dd321e593b0ede65d0a8b01126fff733bb0591da84a4656a43b635a' => '6.1.14',
+    '7a10c90b920b56e645bba6798daefc49ca32150cf670551a81176e2658aa56c8' => '6.1.10-6.1.14',
 );
 
 my %KNOWN_BAD_CLONE_CHECKSUMS = (
@@ -283,6 +286,40 @@ sub _config_checksum {
     return (undef, \%per) if !$ok;
     my $combined = eval { require Digest::SHA; Digest::SHA::sha256_hex($joined); };
     return ($combined, \%per);
+}
+
+# The clone_vm register_method block of the file at PATH, or undef (unreadable file, no
+# clone_vm, or EOF before its closing `});`). The rule: a line matching
+# `^__PACKAGE__->register_method\(\{$` starts a new buffer; every line (with its newline)
+# is appended; a line matching `^    name => 'clone_vm',$` marks the buffer as clone_vm's;
+# the first `^\}\);$` after that ends the block. Byte-for-byte what the documented awk
+# command prints. Path is a parameter so this is unit-testable.
+sub _clone_block {
+    my ($path) = @_;
+    return undef unless defined $path;
+    open(my $fh, '<', $path) or return undef;
+    my ($buf, $hit) = ('', 0);
+    while (my $line = <$fh>) {
+        $buf = '' if $line =~ /^__PACKAGE__->register_method\(\{$/;
+        $buf .= $line;
+        $hit = 1 if $line =~ /^    name => 'clone_vm',$/;
+        if ($hit && $line =~ /^\}\);$/) {
+            close $fh;
+            return $buf;
+        }
+    }
+    close $fh;
+    return undef;
+}
+
+# sha256 hex of the clone_vm block of the file at PATH (see _clone_block), via
+# require-guarded Digest::SHA. Equals the documented `awk ... | sha256sum`. undef if
+# there is no block.
+sub _clone_checksum {
+    my ($path) = @_;
+    my $block = _clone_block($path);
+    return undef unless defined $block;
+    return eval { require Digest::SHA; Digest::SHA::sha256_hex($block); };
 }
 
 # True if $marker (e.g. BINDSNAP-FORCE-RUNNING, BINDSNAP-UNSUPPORTED) appears as its own token
@@ -835,7 +872,7 @@ sub _apply {
 # hashref used by every dispatch path (GUI/API and pct CLI), so replacing $info->{code}
 # overrides the dispatched code everywhere. We install a COPY of upstream's clone_vm body
 # with a single change (bind/device mountpoints carried-or-excluded instead of die), so
-# the whole thing is gated by the @CLONE_GUARDED_FILES checksum.
+# the whole thing is gated by the clone_vm block checksum.
 # =====================================================================
 
 # Pure decision helper, called by _clone_code for each rootfs/mpN and unit-testable
@@ -1326,7 +1363,7 @@ sub _clone_code {
     };
 }
 
-# Install the clone_vm override, gated by the @CLONE_GUARDED_FILES checksum. Called by the
+# Install the clone_vm override, gated by the clone_vm block checksum. Called by the
 # API2/LXC wrapper AFTER it has require()d the genuine upstream (which registers the stock
 # clone_vm). Idempotent and never-die-critical (the wrapper also eval-guards the call).
 sub apply_clone {
@@ -1337,7 +1374,7 @@ sub apply_clone {
         return;
     };
 
-    my ($sum, $per) = _config_checksum(map { _module_path($_) } @CLONE_GUARDED_FILES);
+    my $sum = _clone_checksum(_module_path($CLONE_GUARDED_FILE));
     my $vlabel = _pkg_version('pve-container') // 'unknown';
     my $checksum_known = defined($sum) && exists $KNOWN_GOOD_CLONE_CHECKSUMS{$sum};
     my $bad_reason = (defined($sum) && exists $KNOWN_BAD_CLONE_CHECKSUMS{$sum})
@@ -1350,7 +1387,7 @@ sub apply_clone {
     if (!$checksum_known || defined $bad_reason) {
         my $why = defined $bad_reason ? "known-BAD ($bad_reason)" : "untested";
         _log_banner("clone overlay loaded but NOT active: pve-container $vlabel clone_vm is "
-                  . "$why (combined sha256 $combined); bind-mount clones use stock behaviour. "
+                  . "$why (clone_vm sha256 $combined); bind-mount clones use stock behaviour. "
                   . "Compatible builds: $COMPAT_URL");
         $CLONE_LOADED = 1;
         return;
@@ -1361,7 +1398,7 @@ sub apply_clone {
         $info->{code} = _clone_code($vlabel);    # mutate the live, shared method definition
         $CLONE_APPLIED = 1;
         _log_banner("clone overlay active (pve-container $vlabel, checksum-validated; "
-                  . "combined sha256 $combined): bind/device mountpoints are carried to the "
+                  . "clone_vm sha256 $combined): bind/device mountpoints are carried to the "
                   . "clone (BINDSNAP-EXCLUDE drops named mpN)");
     } else {
         _log("clone_vm method definition not found; clone override DISABLED (stock behaviour)");

@@ -1,0 +1,118 @@
+#!/usr/bin/perl
+# Clone guard: _clone_block extracts exactly the clone_vm register_method block, and
+# _clone_checksum hashes it, reproducing the documented awk|sha256sum pipeline.
+use strict;
+use warnings;
+use Test::More;
+use FindBin;
+use lib "$FindBin::Bin/../lib";
+use File::Temp qw(tempfile);
+use Digest::SHA qw(sha256_hex);
+
+# Load the overlay quietly: its load-time _apply() tries to require
+# PVE::LXC::Config (absent off-node) and logs one harmless line to STDERR.
+BEGIN {
+    open(my $olderr, '>&', \*STDERR) or die "dup STDERR: $!";
+    open(STDERR, '>', '/dev/null')   or die "redir STDERR: $!";
+    require PVE::LXC::BindSnap;
+    open(STDERR, '>&', $olderr)      or die "restore STDERR: $!";
+}
+
+my $pkg = 'PVE::LXC::BindSnap';
+my $clone_block    = $pkg->can('_clone_block')    or BAIL_OUT('_clone_block missing');
+my $clone_checksum = $pkg->can('_clone_checksum') or BAIL_OUT('_clone_checksum missing');
+
+sub tmpfile {
+    my ($content) = @_;
+    my ($fh, $path) = tempfile(UNLINK => 1);
+    binmode $fh;
+    print $fh $content;
+    close $fh;
+    return $path;
+}
+
+my $head = <<'EOT';
+package PVE::API2::LXC;
+
+use strict;
+use warnings;
+
+EOT
+
+my $before = <<'EOT';
+__PACKAGE__->register_method({
+    name => 'vmlist',
+    path => '',
+    code => sub {
+        return [];
+    }});
+
+EOT
+
+my $clone = <<'EOT';
+__PACKAGE__->register_method({
+    name => 'clone_vm',
+    path => '{vmid}/clone',
+    method => 'POST',
+    code => sub {
+        my ($param) = @_;
+        die "mountpoint type not supported\n";
+    },
+});
+EOT
+
+my $after = <<'EOT';
+
+__PACKAGE__->register_method({
+    name => 'migrate_vm',
+    path => '{vmid}/migrate',
+    code => sub {
+        return undef;
+    },
+});
+
+1;
+EOT
+
+my $file = tmpfile($head . $before . $clone . $after);
+
+# 1. the block is exactly the middle method
+is($clone_block->($file), $clone, '_clone_block returns exactly the clone_vm block');
+
+# 2. checksum == sha256 of the block == the documented pipeline
+my $sum = $clone_checksum->($file);
+is($sum, sha256_hex($clone), '_clone_checksum == sha256_hex of the block');
+
+SKIP: {
+    my $have = sub { system("command -v $_[0] >/dev/null 2>&1") == 0 };
+    skip 'awk or sha256sum not available', 1 unless $have->('awk') && $have->('sha256sum');
+    my $cmd = q{awk '/^__PACKAGE__->register_method\(\{$/{buf=""} {buf=buf $0 "\n"} }
+            . q{/^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' '}
+            . $file . q{' | sha256sum | awk '{print $1}'};
+    my $pipeline = `$cmd`;
+    chomp $pipeline;
+    is($sum, $pipeline, '_clone_checksum reproduces the documented awk|sha256sum pipeline');
+}
+
+# 3. edits outside the block don't matter; edits inside do
+{
+    (my $other = $before) =~ s/return \[\];/return [1];/;
+    my $f = tmpfile($head . "use POSIX;\n" . $other . $clone . $after . "# trailer\n");
+    is($clone_checksum->($f), $sum, 'editing text outside the block leaves the checksum unchanged');
+}
+{
+    (my $changed = $clone) =~ s/not supported/unsupported/;
+    my $f = tmpfile($head . $before . $changed . $after);
+    isnt($clone_checksum->($f), $sum, 'editing a line inside the block changes the checksum');
+}
+
+# 4. no block => undef
+ok(!defined $clone_checksum->("$file.does-not-exist"), 'undef for a missing file');
+ok(!defined $clone_block->(tmpfile($head . $before . $after)), 'undef for a file without clone_vm');
+{
+    (my $open = $clone) =~ s/^\}\);\n//m;
+    ok(!defined $clone_checksum->(tmpfile($head . $before . $open)),
+        'undef when the clone_vm block never reaches });');
+}
+
+done_testing();
