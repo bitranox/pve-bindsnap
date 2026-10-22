@@ -122,6 +122,9 @@ combined hash. To get that version supported:
 `pve-container 6.1.12`, combined hash
 `29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f` (per file:
 `Config.pm` `5d661402...e9ffdb2c`, `AbstractConfig.pm` `70432cce...61871494`, from
+libpve-guest-common-perl 6.0.5), and `pve-container 6.1.14`, combined hash
+`04aada64089cbf97d1598ea0b102aa61d38bfd456526be4fff5ce4289e225a77` (per file:
+`Config.pm` `7742e9a4...8338e79a`, `AbstractConfig.pm` `70432cce...61871494`, again from
 libpve-guest-common-perl 6.0.5). Every node in a cluster on the same package versions
 shares those exact bytes, so one entry covers the whole cluster at that version.
 

@@ -18,6 +18,21 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.3.0] - 2026-10-22
+
+### Added
+
+- pve-container **6.1.14** joins both known-good tables: the snapshot guard (combined
+  sha256 `04aada64...9e225a77`, with libpve-guest-common-perl 6.0.5) and the clone guard
+  (`2ea44bdd...a43b635a`). Bind-mount containers on that build now snapshot and clone with
+  no keyword. The checksums were computed from the published `pve-container_6.1.14_all.deb`
+  and `libpve-guest-common-perl_6.0.5_all.deb`, using the same method that reproduces the
+  6.1.12 values exactly. A source diff against 6.1.12 confirms the wrapped surface is
+  unchanged: `LXC/Config.pm` only tightens two option patterns and rejects CR/LF in
+  rendered config values in `write_pct_config`, and `API2/LXC.pm` only adds a protection
+  check in `move_volume`, so the snapshot helpers and the copied `clone_vm` body are
+  byte-identical. See [docs/test-results.md](docs/test-results.md).
+
 ## [1.2.1] - 2026-08-03
 
 ### Documentation
