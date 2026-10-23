@@ -76,7 +76,9 @@ refusal, the `BINDSNAP-EXCLUDE` cases, and the task-log summaries. Clone was ver
 way: `pct clone` of a bind-mount container failing on stock first, then carrying the bind
 mounts (and dropping a `BINDSNAP-EXCLUDE`'d one) once the override is in, plus the version-change
 fallback (a perturbed upstream disables the override rather than running a stale copy). Beyond
-that test node, it runs in the author's own production cluster on the same pve-container build.
+that test node, it runs in the author's own production cluster: release 1.4.0 on three PVE 9.2.20
+nodes with pve-container 6.1.14, where snapshot and delete of running bind-mount containers have
+been exercised; clone and rollback on that build have not been run yet.
 
 ## Checking it yourself
 

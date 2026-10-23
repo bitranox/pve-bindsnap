@@ -14,11 +14,11 @@ gating applies to them.
 
 These builds snapshot bind-mount CTs with no keyword needed.
 
-| pve-container | combined sha256                                                    | notes                                                                                  |
-|---------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------|
-| 6.1.10        | `1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106` | tested on PVE 9.2                                                                      |
-| 6.1.12        | `29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f` | tested on PVE 9.2.6, with libpve-guest-common-perl 6.0.5                               |
-| 6.1.14        | `04aada64089cbf97d1598ea0b102aa61d38bfd456526be4fff5ce4289e225a77` | source-reviewed, checksum confirmed on PVE 9.2.20, with libpve-guest-common-perl 6.0.5 |
+| pve-container | combined sha256                                                    | notes                                                                         |
+|---------------|--------------------------------------------------------------------|-------------------------------------------------------------------------------|
+| 6.1.10        | `1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106` | tested on PVE 9.2                                                             |
+| 6.1.12        | `29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f` | tested on PVE 9.2.6, with libpve-guest-common-perl 6.0.5                      |
+| 6.1.14        | `04aada64089cbf97d1598ea0b102aa61d38bfd456526be4fff5ce4289e225a77` | snapshot and delete tested on PVE 9.2.20, with libpve-guest-common-perl 6.0.5 |
 
 ## Hard-blocked (known-bad)
 
@@ -64,9 +64,9 @@ awk '/^__PACKAGE__->register_method\(\{$/{hit=0; buf=""} {buf=buf $0 "\n"} /^   
 On these builds, `pct clone` carries bind/device mountpoints to the new CT (and honours
 `BINDSNAP-EXCLUDE`).
 
-| pve-container | clone_vm sha256                                                    | notes                                                    |
-|---------------|--------------------------------------------------------------------|----------------------------------------------------------|
-| 6.1.10-6.1.14 | `7a10c90b920b56e645bba6798daefc49ca32150cf670551a81176e2658aa56c8` | tested on PVE 9.2 and 9.2.6; 6.1.14 source-reviewed      |
+| pve-container | clone_vm sha256                                                    | notes                                                                                 |
+|---------------|--------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| 6.1.10-6.1.14 | `7a10c90b920b56e645bba6798daefc49ca32150cf670551a81176e2658aa56c8` | tested on PVE 9.2 and 9.2.6; 6.1.14 source-reviewed, checksum confirmed on PVE 9.2.20 |
 
 ### Hard-blocked (known-bad)
 

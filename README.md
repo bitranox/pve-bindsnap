@@ -6,19 +6,21 @@ overlay enables both again, delegating to Proxmox's genuine snapshot and clone c
 rather than forking it.
 
 > Release 1.4.0. It passes the unit tests, and the overlay as of 1.2.0 has been exercised on
-> Proxmox VE 9.2 / 9.3 (pve-container 6.1.10 and 6.1.12; 6.1.14 is source-reviewed against
-> 6.1.12) across the full install lifecycle and matrix: create / rollback / delete (including
-> a data-level rollback), the `BINDSNAP-FORCE-RUNNING`, `BINDSNAP-UNSUPPORTED` and
-> `BINDSNAP-EXCLUDE` paths, each both per-snapshot and as a standing CT-Notes directive, plus
-> the known-bad hard block, and it runs in the author's own production cluster.
+> Proxmox VE 9.2 / 9.3 (pve-container 6.1.10 and 6.1.12) across the full install lifecycle
+> and matrix: create / rollback / delete (including a data-level rollback), the
+> `BINDSNAP-FORCE-RUNNING`, `BINDSNAP-UNSUPPORTED` and `BINDSNAP-EXCLUDE` paths, each both
+> per-snapshot and as a standing CT-Notes directive, plus the known-bad hard block. 1.4.0
+> runs on the author's three-node production cluster (PVE 9.2.20, pve-container 6.1.14),
+> where it snapshots and deletes running bind-mount CTs, from `pct` and from an automated
+> snapshot job.
 > `pct clone` of a bind-mount container is covered too (the binds are carried to the clone,
 > `BINDSNAP-EXCLUDE` drops them), gated by its own checksum so an untested build falls back
 > to stock. The 1.4.0 changes (the `root@pam` clone gate, leaving out volumes a snapshot
 > excluded, honouring a snapshot's exclude directive only on a bind-mount CT) are
-> unit-tested; their on-node run is pending. It hasn't been run against pve-container
-> versions other than those, so on a build it doesn't recognise it refuses by default until
-> you opt in. It's a small, commented overlay: read the source and the
-> [test plan](docs/testing.md) before you deploy.
+> unit-tested; their on-node run, like clone and rollback on 6.1.14, is pending. It hasn't
+> been run against pve-container versions other than those, so on a build it doesn't
+> recognise it refuses by default until you opt in. It's a small, commented overlay: read the
+> source and the [test plan](docs/testing.md) before you deploy.
 >
 > The risks are low: the wrapper loads the overlay eval-guarded (a bug in it just falls
 > back to stock), the installer pre-flights and rolls back on failure, `uninstall.sh`

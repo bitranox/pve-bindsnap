@@ -44,6 +44,13 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
   final line without a trailing newline hashes the same.
 - The install pre-flight checks print the perl error when they fail, instead of discarding it.
 
+### Documentation
+
+- [docs/test-results.md](docs/test-results.md) records the 1.4.0 install on a three-node
+  PVE 9.2.20 cluster with pve-container 6.1.14, and its snapshot and delete runs on running
+  bind-mount CTs. pve-container 6.1.14 is marked tested for snapshot and delete; clone and
+  rollback on it are still to be run.
+
 ### Changed
 
 - The clone guard hashes only the `clone_vm` method block, not all of `PVE/API2/LXC.pm`. One
