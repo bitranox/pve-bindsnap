@@ -31,7 +31,8 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
   unchanged: `LXC/Config.pm` only tightens two option patterns and rejects CR/LF in
   rendered config values in `write_pct_config`, and `API2/LXC.pm` only adds a protection
   check in `move_volume`, so the snapshot helpers and the copied `clone_vm` body are
-  byte-identical. See [docs/test-results.md](docs/test-results.md).
+  byte-identical. Both checksums were confirmed on a three-node PVE 9.2.20 cluster running
+  6.1.14. See [docs/test-results.md](docs/test-results.md).
 
 ## [1.2.1] - 2026-08-03
 

@@ -208,7 +208,11 @@ same `70432cce...61871494` as in the 6.1.12 pair.
   `move_volume` (upstream fix #7148). The `clone_vm` method definition is byte-identical to
   6.1.12 (418 lines, `cmp` clean), so the body the overlay copies still matches.
 
-The on-node matrix from the 6.1.12 run has not been repeated on a 6.1.14 node yet.
+**On the node.** On a three-node Proxmox VE 9.2.20 cluster (pve-container 6.1.14,
+libpve-guest-common-perl 6.0.5), every node computes both entries from its installed files:
+the combined snapshot checksum `04aada64...9e225a77` and the clone checksum
+`2ea44bdd...a43b635a`. The functional matrix from the 6.1.12 run has not been repeated with
+this release.
 
 ## Aftermath
 
