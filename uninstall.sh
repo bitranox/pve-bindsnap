@@ -4,7 +4,8 @@
 # =====================================================================
 # pve-bindsnap -- uninstaller
 # Removes the two wrappers, reverts both diverts (restoring the genuine
-# PVE::LXC::Config and PVE::API2::LXC), and removes the overlay module. Idempotent; pipeable like the installer:
+# PVE::LXC::Config and PVE::API2::LXC), and removes the overlay module. Idempotent;
+# pipeable like the installer:
 #   curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/uninstall.sh | bash
 # =====================================================================
 set -euo pipefail
