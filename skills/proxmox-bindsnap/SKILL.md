@@ -97,7 +97,11 @@ the wrong case does not match.
   so it renders small). ALWAYS needs the colon. A directive in a snapshot's own description
   overrides the Notes default; an empty `BINDSNAP-EXCLUDE:` means exclude nothing. `rootfs` is
   never excluded. NOTE the mirror behaviour: for a SNAPSHOT it drops named MANAGED volumes; for a
-  CLONE it drops named BIND/DEVICE mounts.
+  CLONE it drops named BIND/DEVICE mounts. NEVER add, change or remove the directive in an
+  EXISTING snapshot's description (GUI Snapshots -> Edit, API `PUT .../snapshot/<snap>/config`):
+  it records what was captured. Adding it makes rollback leave that `mpN` at current data, delete
+  orphan `mpN@snap`, and a `--snapname` clone leave `mpN` out; removing it makes rollback/delete
+  fail on the missing volume snapshot.
 
 ## 5. Snapshot, and the checksum guard
 
@@ -113,8 +117,9 @@ restore of what a bind mount points at -- only managed-volume data is versioned.
 host data outside Proxmox storage; stock Proxmox never versions it either.)
 
 The guard is a content checksum of the upstream Proxmox source (two SEPARATE guards: snapshot
-hashes `Config.pm`+`AbstractConfig.pm`; clone hashes `API2/LXC.pm`). On an **untested** build,
-bind snapshots are refused and clone stays stock. The correct response is NOT to force forever:
+hashes `Config.pm`+`AbstractConfig.pm`; clone hashes the `clone_vm` method block of
+`API2/LXC.pm`). On an **untested** build, bind snapshots are refused and clone stays stock. The
+correct response is NOT to force forever:
 
 1. Opt in once with `BINDSNAP-UNSUPPORTED` to TEST (the task finishes as a yellow `TASK WARNINGS`).
 2. Run the test plan: https://github.com/bitranox/pve-bindsnap/blob/main/docs/testing.md
@@ -125,7 +130,7 @@ bind snapshots are refused and clone stays stock. The correct response is NOT to
 Which builds count as vetted is decided by the overlay, not from memory: the journal line in
 section 2 tells you about THIS node's build, and
 https://github.com/bitranox/pve-bindsnap/blob/main/docs/compatible-versions.md is the
-authoritative list. As of pve-bindsnap **1.2.0** it holds **pve-container 6.1.10 and 6.1.12**
+authoritative list. As of pve-bindsnap **1.4.0** it holds **pve-container 6.1.10, 6.1.12 and 6.1.14**
 for both guards. Mind that the snapshot checksum also covers `AbstractConfig.pm`, which ships in
 `libpve-guest-common-perl` rather than in `pve-container`, so an apt upgrade of EITHER package
 can move a node into TEST mode.
@@ -139,6 +144,11 @@ pve-container or use `zfs snapshot` directly.
 `mpN`) clone as stock, and each bind/device mount is **carried to the clone unchanged -- pointing
 at the SAME host path as the source** (not a copy). The clone task finishes as a yellow
 `TASK WARNINGS` naming the carried mounts, because the two CTs then share that host data.
+Carrying a bind/device mount needs `root@pam`; any other user gets `... only allowed for
+root@pam` (clone as root or exclude the mount). A bind/device `rootfs` is NEVER carried, not even
+for root@pam (the clone would share, and rewrite, the source's root dir): stock refusal
+`unable to clone mountpoint 'rootfs' (type bind)`. In a `--snapname` clone, a managed volume the
+snapshot was taken without (`BINDSNAP-EXCLUDE`) is left out: the snapshot holds no data for it.
 
 To stop the clone inheriting a bind/data mount, add `#### BINDSNAP-EXCLUDE: mp0` to the **source**
 CT's Notes before cloning. A full clone of a RUNNING CT still needs `--snapname` (Proxmox rule):
@@ -158,7 +168,8 @@ snapshots and in the CT config (`zfs list -t snapshot | grep subvol-<vmid>`).
 | Symptom                                                        | Cause / fix                                                                                                                            |
 |----------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
 | Snapshot button greyed for a bind-mount CT                     | Not installed, or daemons not restarted. Install (section 1), verify (section 2).                                                      |
-| `unable to clone mountpoint 'mpN' (type bind)`                 | Clone override not active: not installed, OR build untested (clone stays stock). Install / get the build vetted (section 5).           |
+| `unable to clone mountpoint 'mpN' (type bind)` (nothing after) | Clone override not active: not installed, OR build untested (clone stays stock). Install / get the build vetted (section 5).           |
+| `... only allowed for root@pam` (clone refused)                | Non-root caller; a bind/device mount can only be carried by `root@pam`. Clone as root@pam, or `BINDSNAP-EXCLUDE: mpN` it (section 6).  |
 | `CT <vmid> is running ... stop ... or BINDSNAP-FORCE-RUNNING`  | Stop the CT, or add `BINDSNAP-FORCE-RUNNING` (section 4).                                                                              |
 | `pve-container <ver> is ... untested ... BINDSNAP-UNSUPPORTED` | Build not in the table. Opt in to TEST and get it vetted (section 5).                                                                  |
 | `on the overlay's known-BAD list ... BLOCKED`                  | Hard block; update pve-container or use `zfs snapshot`.                                                                                |

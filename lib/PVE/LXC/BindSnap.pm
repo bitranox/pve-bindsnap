@@ -14,7 +14,7 @@ use strict;
 use warnings;
 
 # =====================================================================
-# pve-bindsnap                                       (1.2.0)
+# pve-bindsnap                                       (1.4.0)
 # ---------------------------------------------------------------------
 # Lets Proxmox snapshot LXC containers that carry bind-/device-mount
 # entries (mpN pointing at host paths), by hiding every non-'volume'
@@ -80,7 +80,7 @@ use warnings;
 # alternative.
 # =====================================================================
 
-our $VERSION = '1.2.0';
+our $VERSION = '1.4.0';
 
 # Upstream files whose byte-content defines the snapshot surface we wrap.
 # foreach_volume_full + snapshot_create/delete/rollback are INHERITED from
@@ -101,9 +101,11 @@ my @GUARDED_FILES = (
 #     "$(sha256sum /usr/share/perl5/PVE/AbstractConfig.pm | awk '{print $1}')" \
 #   | sha256sum | awk '{print $1}'
 # To add a new release: test it (see README), then paste its combined sha256 here.
-my %KNOWN_GOOD_CHECKSUMS = (
+# Package variables (as are the three below) so tests can read them; nothing writes them.
+our %KNOWN_GOOD_CHECKSUMS = (
     '1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106' => '6.1.10',
     '29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f' => '6.1.12',
+    '04aada64089cbf97d1598ea0b102aa61d38bfd456526be4fff5ce4289e225a77' => '6.1.14',
 );
 
 # Known-BAD table. KEY = combined sha256 (same as above); VALUE = a short reason. A
@@ -112,7 +114,7 @@ my %KNOWN_GOOD_CHECKSUMS = (
 # (data loss, broken snapshots). Starts empty; a maintainer adds an entry when a failure
 # is reported and confirmed. Checked BEFORE the known-good/BINDSNAP-UNSUPPORTED logic, so a bad
 # checksum always loses even if it were somehow also listed as good.
-my %KNOWN_BAD_CHECKSUMS = (
+our %KNOWN_BAD_CHECKSUMS = (
     # 'sha256...' => 'pve-container X.Y.Z: snapshot_delete corrupts bind-mount CTs',
 );
 
@@ -120,26 +122,30 @@ my %KNOWN_BAD_CHECKSUMS = (
 # `pct clone` of a bind-mount CT dies in PVE::API2::LXC::clone_vm (an inline die on a
 # non-'volume' mountpoint), a different module and code path than the diverted
 # PVE::LXC::Config. We override clone_vm by replacing a COPY of its whole method body
-# (see _clone_code) -- so the override MUST be gated by the byte-content of the file we
-# copied from. We hash ONLY PVE/API2/LXC.pm: that is the precise load-bearing surface
-# (the methods it calls -- Config->set_lock/write_config/parse_volume -- are stable
-# named interfaces). If the checksum is not known-good, we leave clone_vm stock (binds
-# stay blocked, exactly as upstream -- no regression on an untested build).
+# (see _clone_code) -- so the override MUST be gated by the byte-content of what we
+# copied. We hash ONLY the clone_vm register_method block of PVE/API2/LXC.pm (see
+# _clone_block): from its `__PACKAGE__->register_method({` line to its closing `});`,
+# so its permissions and parameter schema are covered too. That block is exactly the
+# copied surface; the rest of the file is code we do not copy, and the helpers the body
+# calls (Config->set_lock/write_config/parse_volume, ...) live in other modules the whole
+# file never covered either -- hashing the whole file only forced a release on every
+# unrelated upstream change. If the checksum is not known-good, we leave clone_vm stock
+# (binds stay blocked, exactly as upstream -- no regression on an untested build).
 # Recompute the manual way (must equal what the overlay logs):
-#   sha256sum /usr/share/perl5/PVE/API2/LXC.pm | awk '{print $1}' | sha256sum | awk '{print $1}'
-my @CLONE_GUARDED_FILES = (
-    'PVE/API2/LXC.pm',          # %INC key -> /usr/share/perl5/PVE/API2/LXC.pm
-);
+#   awk '/^__PACKAGE__->register_method\(\{$/{hit=0; buf=""} {buf=buf $0 "\n"} /^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' \
+#     /usr/share/perl5/PVE/API2/LXC.pm | sha256sum | awk '{print $1}'
+my $CLONE_GUARDED_FILE = 'PVE/API2/LXC.pm';    # %INC key -> /usr/share/perl5/PVE/API2/LXC.pm
 
 # Known-good / known-bad tables for the CLONE override, same semantics as the snapshot
-# tables: KEY = combined sha256 of @CLONE_GUARDED_FILES, VALUE = pve-container version
-# (good) or a reason (bad). Only the checksum decides; the version is a human label.
-my %KNOWN_GOOD_CLONE_CHECKSUMS = (
-    '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198' => '6.1.10',
-    '1ace1c4de506b79bf165f2c5aeaa8d8c4af35b6a9d91ce1ea24e5742f7e7afc7' => '6.1.12',
+# tables: KEY = sha256 of the clone_vm block (see _clone_checksum), VALUE = pve-container
+# version (good) or a reason (bad). Only the checksum decides; the version is a human label.
+# One block hash covers 6.1.10, 6.1.12 and 6.1.14: their clone_vm is byte-identical
+# (verified from the published packages).
+our %KNOWN_GOOD_CLONE_CHECKSUMS = (
+    '7a10c90b920b56e645bba6798daefc49ca32150cf670551a81176e2658aa56c8' => '6.1.10-6.1.14',
 );
 
-my %KNOWN_BAD_CLONE_CHECKSUMS = (
+our %KNOWN_BAD_CLONE_CHECKSUMS = (
     # 'sha256...' => 'pve-container X.Y.Z: clone_vm mishandles carried bind mounts',
 );
 
@@ -198,8 +204,10 @@ sub _is_pve_daemon {
 # PVE daemon: an admin greps the daemon journal to confirm the overlay is live, and nothing
 # else sees it. The per-snapshot summaries and ALL refusals/warnings are emitted on the
 # operation (via _log_journal / _log_block / die) and are deliberately NOT gated here, so
-# GUI and CLI snapshots still report fully.
-sub _log_banner { return if -t STDERR; return unless _is_pve_daemon(); _log($_[0]); }
+# GUI and CLI snapshots still report fully. Takes a coderef that BUILDS the message, called
+# only when the banner will actually print -- so the version lookup behind it (see _vlabel)
+# never runs for a TTY or a non-daemon loader.
+sub _log_banner { return if -t STDERR; return unless _is_pve_daemon(); _log($_[0]->()); }
 
 # Print a pre-formatted multi-line block to STDERR as-is. A worker's STDERR is redirected
 # straight to the task-log file, which PRESERVES newlines -- unlike a die message, which
@@ -233,6 +241,12 @@ sub _pkg_version {
         $out =~ /\A\s*(\S+)\s*\z/ ? $1 : undef;
     };
 }
+
+# The pve-container version label, looked up lazily: dpkg-query only runs when a message
+# needs it, at most once per process (every loader of PVE::LXC::Config / PVE::API2::LXC
+# runs the overlay, most of which never print anything).
+my $VLABEL;
+sub _vlabel { return $VLABEL //= (_pkg_version('pve-container') // 'unknown'); }
 
 # Resolve the on-disk path of the GENUINE upstream module to checksum. From %INC,
 # falling back to the standard PVE perl5 dir. But when we are installed via
@@ -281,6 +295,44 @@ sub _config_checksum {
     return (undef, \%per) if !$ok;
     my $combined = eval { require Digest::SHA; Digest::SHA::sha256_hex($joined); };
     return ($combined, \%per);
+}
+
+# The clone_vm register_method block of the file at PATH, or undef (unreadable file, no
+# clone_vm, or EOF before its closing `});`). The rule: a line matching
+# `^__PACKAGE__->register_method\(\{$` starts a new buffer and clears the clone_vm mark (so
+# a clone_vm block that never ends in a bare `});` yields undef, not the next method's
+# block); every line is appended with a "\n" (as awk's buf=buf $0 "\n" does, so a last
+# line without one gains it); a line matching `^    name => .clone_vm.,$` (any quote
+# character, as the awk's `.`) marks the buffer as clone_vm's; the first `^\}\);$` after
+# that ends the block. Byte-for-byte what the documented awk command prints. Path is a
+# parameter so this is unit-testable.
+sub _clone_block {
+    my ($path) = @_;
+    return undef unless defined $path;
+    open(my $fh, '<', $path) or return undef;
+    my ($buf, $hit) = ('', 0);
+    while (my $line = <$fh>) {
+        $line =~ s/\n\z//;    # awk's $0: the record without its newline
+        ($buf, $hit) = ('', 0) if $line =~ /^__PACKAGE__->register_method\(\{$/;
+        $buf .= "$line\n";
+        $hit = 1 if $line =~ /^    name => .clone_vm.,$/;
+        if ($hit && $line =~ /^\}\);$/) {
+            close $fh;
+            return $buf;
+        }
+    }
+    close $fh;
+    return undef;
+}
+
+# sha256 hex of the clone_vm block of the file at PATH (see _clone_block), via
+# require-guarded Digest::SHA. Equals the documented `awk ... | sha256sum`. undef if
+# there is no block.
+sub _clone_checksum {
+    my ($path) = @_;
+    my $block = _clone_block($path);
+    return undef unless defined $block;
+    return eval { require Digest::SHA; Digest::SHA::sha256_hex($block); };
 }
 
 # True if $marker (e.g. BINDSNAP-FORCE-RUNNING, BINDSNAP-UNSUPPORTED) appears as its own token
@@ -340,6 +392,17 @@ sub _conf_needs_overlay {
         1;
     };
     return $found;
+}
+
+# The BINDSNAP-EXCLUDE set a conf's own description actually applied: its directive only
+# when the conf has a bind/device mountpoint (the same _conf_needs_overlay test
+# snapshot_create makes), else {}. A plain CT is snapshotted stock with every volume, so a
+# directive in its snapshot's description was never applied and must not make delete,
+# rollback or a --snapname clone skip a volume that has snapshot data. Never dies.
+sub _conf_excludes {
+    my ($class, $conf, $orig_fvf) = @_;
+    return {} if !_conf_needs_overlay($class, $conf, $orig_fvf);
+    return _snap_excludes($conf->{description}) // {};
 }
 
 # Sort a CT's (or a snapshot's) mountpoints into three buckets via the live iterator:
@@ -485,16 +548,32 @@ sub _log_op_summary {
     return unless $snap;
     _log_journal(_op_summary(
         op => $op, did => $did, class => $class, vmid => $vmid, snapname => $snapname,
-        conf => $snap, fvf => $orig_fvf, excl => (_snap_excludes($snap->{description}) // {}),
+        conf => $snap, fvf => $orig_fvf, excl => _conf_excludes($class, $snap, $orig_fvf),
     ));
 }
 
-# Indented "pve-container <ver>  <checksum>" lines for every known-good build, for the
+# Compare two version labels like <=> (-1/0/1): split on '.' and '-', compare component by
+# component -- numerically when both are all digits (so 6.1.9 < 6.1.10 < 6.2.0), else as
+# strings; a shorter label that is a prefix of the other sorts first. Pure, unit-testable.
+sub _vercmp {
+    my @a = split /[.-]/, $_[0];
+    my @b = split /[.-]/, $_[1];
+    while (@a && @b) {
+        my ($x, $y) = (shift @a, shift @b);
+        my $c = ($x =~ /\A\d+\z/ && $y =~ /\A\d+\z/) ? $x <=> $y : $x cmp $y;
+        return $c if $c;
+    }
+    return @a <=> @b;
+}
+
+# Indented "pve-container <ver>  <checksum>" lines for every known-good build, in version
+# order (ties broken by checksum, so equal labels sort deterministically), for the
 # multi-line refusal explanations (printed to the task log, which preserves newlines).
 # Pure, unit-testable.
 sub _known_good_list {
     my @l = map { "    pve-container $KNOWN_GOOD_CHECKSUMS{$_}  $_" }
-        sort { $KNOWN_GOOD_CHECKSUMS{$a} cmp $KNOWN_GOOD_CHECKSUMS{$b} } keys %KNOWN_GOOD_CHECKSUMS;
+        sort { _vercmp($KNOWN_GOOD_CHECKSUMS{$a}, $KNOWN_GOOD_CHECKSUMS{$b}) || $a cmp $b }
+        keys %KNOWN_GOOD_CHECKSUMS;
     return @l ? join("\n", @l) : "    (none recorded)";
 }
 
@@ -587,14 +666,15 @@ sub _msg_running {
 # the LIVE upstream coderef. The exclude set is $CURRENT_EXCLUDES when set (during
 # snapshot_create, where the effective set may be a per-snapshot override and $conf is
 # the live CT config); otherwise it is read from the config being iterated -- which for
-# delete/rollback is the snapshot's own frozen description.
+# delete/rollback is the snapshot's own frozen description, honoured only if that snapshot
+# has a bind/device mountpoint (_conf_excludes: a plain CT's snapshot never applied it).
 sub _make_filter {
     my ($orig) = @_;
     return sub {
         my ($class, $conf, $opts, $func, @param) = @_;
         my $excl = defined($CURRENT_EXCLUDES)
             ? $CURRENT_EXCLUDES
-            : (_snap_excludes($conf->{description}) // {});
+            : _conf_excludes($class, $conf, $orig);
         return $orig->(
             $class, $conf, $opts,
             sub {
@@ -623,7 +703,6 @@ sub _apply {
     # BINDSNAP-UNSUPPORTED opt-in in the snapshot name/Description (handled in snapshot_create).
     # The pve-container version is a human label only -- never the decision.
     my ($sum, $per) = _config_checksum();
-    my $vlabel = _pkg_version('pve-container') // 'unknown';
     my $checksum_known = defined($sum) && exists $KNOWN_GOOD_CHECKSUMS{$sum};
     # Known-BAD wins over everything: a hard block that BINDSNAP-UNSUPPORTED cannot override.
     my $bad_reason = (defined($sum) && exists $KNOWN_BAD_CHECKSUMS{$sum})
@@ -683,6 +762,8 @@ sub _apply {
     *PVE::LXC::Config::snapshot_create = sub {
         my ($class, $vmid, $snapname, $save_vmstate, $comment) = @_;
         return $orig_create->(@_) if defined($snapname) && $snapname eq 'vzdump';
+
+        my $vlabel = _vlabel();
 
         # Load the config once -- reused for the engagement check, the BINDSNAP-EXCLUDE
         # directive, and the summary. Fail-safe: if it can't be read, assume the CT
@@ -820,7 +901,7 @@ sub _apply {
     };
 
     $APPLIED = 1;
-    _log_banner(_load_message($checksum_known, $sum, $vlabel, $per, $bad_reason));
+    _log_banner(sub { _load_message($checksum_known, $sum, _vlabel(), $per, $bad_reason) });
 }
 
 # =====================================================================
@@ -832,26 +913,43 @@ sub _apply {
 # in place: PVE::API2::LXC->map_method_by_name('clone_vm') returns the shared $info
 # hashref used by every dispatch path (GUI/API and pct CLI), so replacing $info->{code}
 # overrides the dispatched code everywhere. We install a COPY of upstream's clone_vm body
-# with a single change (bind/device mountpoints carried-or-excluded instead of die), so
-# the whole thing is gated by the @CLONE_GUARDED_FILES checksum.
+# with a single change (bind/device mpN carried-or-excluded instead of die; the carry is
+# root@pam only, anyone else still dies; a bind/device rootfs still dies for everyone; a
+# --snapname clone leaves out a managed volume the bind-CT snapshot excluded), so the whole
+# thing is gated by the clone_vm block checksum.
 # =====================================================================
 
-# Pure decision helper, factored out of _clone_code so the carry/exclude rule is
-# unit-testable off-node (the full closure needs the live PVE stack). Given a config
-# option, its parsed mountpoint type, and the effective BINDSNAP-EXCLUDE set, classify
-# what clone_vm does with it:
-#   'clone-volume' -- a managed (type 'volume') rootfs/mpN: stock clone of the volume
-#   'exclude'      -- a bind/device mpN named in BINDSNAP-EXCLUDE: dropped from the clone
-#   'carry'        -- any other bind/device rootfs/mpN: carried to the clone unchanged
-#   'copy-other'   -- not a mountpoint (netN, hostname, ...): upstream copies it as-is
+# Pure decision helper, called by _clone_code for each rootfs/mpN and unit-testable
+# off-node (the full closure needs the live PVE stack). Given a config option, its parsed
+# mountpoint type, the effective BINDSNAP-EXCLUDE set, and the options snapshot (true for
+# a --snapname clone) and root (true when the caller is root@pam), classify what clone_vm
+# does with it:
+#   'clone-volume'    -- a managed (type 'volume') rootfs/mpN: stock clone of the volume
+#   'not-in-snapshot' -- a managed mpN named in the snapshot's BINDSNAP-EXCLUDE on a
+#                        --snapname clone: the snapshot holds no data for it, so it is
+#                        left out of the clone
+#   'exclude'         -- a bind/device mpN named in BINDSNAP-EXCLUDE: dropped from the clone
+#   'deny'            -- a bind/device rootfs (for every caller: carrying it would make the
+#                        clone share the source's root dir, and post_clone_hook would then
+#                        rewrite hostname/machine-id/network in the SOURCE CT), or any other
+#                        bind/device mpN when the caller is not root@pam (only root@pam may
+#                        set a non-volume mountpoint, PVE::LXC::check_ct_modify_config_perm):
+#                        the clone dies, as stock clone_vm did
+#   'carry'           -- any other bind/device mpN for root@pam: carried unchanged
+#   'copy-other'      -- not a mountpoint (netN, hostname, ...): upstream copies it as-is
 # rootfs is never in the exclude set (_snap_excludes only yields mpN keys), so a rootfs
-# can only ever be 'clone-volume' or 'carry'.
+# can only ever be 'clone-volume' or 'deny'.
 sub _clone_disposition {
-    my ($opt, $type, $excl) = @_;
+    my ($opt, $type, $excl, %o) = @_;
     $excl //= {};
     if (($opt eq 'rootfs') || ($opt =~ m/^mp\d+$/)) {
-        return 'clone-volume' if defined($type) && $type eq 'volume';
+        if (defined($type) && $type eq 'volume') {
+            return 'not-in-snapshot' if $o{snapshot} && $excl->{$opt};
+            return 'clone-volume';
+        }
+        return 'deny' if $opt eq 'rootfs';
         return 'exclude' if $excl->{$opt};
+        return 'deny' unless $o{root};
         return 'carry';
     }
     return 'copy-other';
@@ -859,24 +957,31 @@ sub _clone_disposition {
 
 # Task-log summary for a clone, parity with _snapshot_summary: a multi-line block printed
 # into the 'vzclone' worker's task log (newlines preserved). Reports the managed volumes
-# cloned, the bind/device mounts carried (same host path), and the ones BINDSNAP-EXCLUDE
-# dropped. Pure; unit-testable.
+# cloned, the bind/device mounts carried (same host path), the ones BINDSNAP-EXCLUDE
+# dropped, and the managed volumes a --snapname clone left out because the snapshot was
+# taken with them excluded. Pure; unit-testable.
 sub _clone_summary {
     my (%c) = @_;
     my $vlabel   = $c{vlabel} // 'unknown';
     my @cloned   = @{ $c{cloned}   // [] };
     my @carried  = @{ $c{carried}  // [] };
     my @excluded = @{ $c{excluded} // [] };
+    my @not_snap = @{ $c{not_in_snapshot} // [] };
+    my $snapname = $c{snapname} // '';
     my $is_bind  = (@carried || @excluded) ? 1 : 0;
 
     my @lines;
     push @lines, $is_bind
         ? "clone of CT $c{vmid} -> $c{newid} (bind-mount container)"
+        : @not_snap
+        ? "clone of CT $c{vmid} -> $c{newid} (from snapshot '$snapname'; volumes excluded from it left out)"
         : "clone of CT $c{vmid} -> $c{newid} (no bind/device mounts -- stock clone, overlay made no change)";
 
     my $vols = "cloned " . (join(', ', @cloned) || 'nothing');
     $vols .= "; carried " . join(', ', @carried) . " (bind/device, same host path as source)" if @carried;
     $vols .= "; excluded " . join(', ', @excluded) . " (BINDSNAP-EXCLUDE)" if @excluded;
+    $vols .= "; left out " . join(', ', @not_snap)
+        . " (excluded from snapshot '$snapname', no snapshot data to clone)" if @not_snap;
     push @lines, _wrap_kv("  volumes               : ", $vols);
     push @lines, _wrap_kv("  checksum              : ", "validated -- pve-container $vlabel is in the clone tested set");
 
@@ -899,19 +1004,38 @@ sub _clone_carry_warning {
          . "    #### BINDSNAP-EXCLUDE: " . join(' ', @c) . "\n";
 }
 
+# The left-out-volume warning for a --snapname clone: a snapshot taken with
+# BINDSNAP-EXCLUDE: mpN (managed volume) has no @snap for mpN, so the clone leaves it out
+# instead of failing on a snapshot volume that does not exist. Returns '' when nothing was
+# left out. Pure; unit-testable.
+sub _clone_not_in_snapshot_warning {
+    my ($list, $snapname) = @_;
+    my @l = @{ $list // [] };
+    return '' unless @l;
+    return "$TAG: clone from snapshot '$snapname' left out " . join(', ', @l) . ": they were excluded\n"
+         . "  from that snapshot (BINDSNAP-EXCLUDE), so it holds no data for them to clone. Clone the\n"
+         . "  live (stopped) CT instead if the clone needs them.\n";
+}
+
 # Return a coderef to install as clone_vm's {code}. This is a copy of upstream's clone_vm
-# body (pve-container 6.1.10, PVE/API2/LXC.pm) with three marked "pve-bindsnap" changes:
-#   1. compute the effective BINDSNAP-EXCLUDE set from the source/snapshot description, and
-#      collect the carried/excluded bind mounts for the task-log summary.
-#   2. the non-'volume' branch carries the entry to the new CT (or drops it if excluded)
-#      instead of `die "unable to clone mountpoint ..."`.
-#   3. the 'vzclone' worker prints a task-log summary and warns when binds were carried.
+# body (pve-container 6.1.10, PVE/API2/LXC.pm; byte-identical through 6.1.14) with three
+# marked "pve-bindsnap" changes:
+#   1. compute the effective BINDSNAP-EXCLUDE set from the source/snapshot description,
+#      classify each rootfs/mpN with _clone_disposition, and collect the carried/excluded/
+#      left-out mountpoints for the task-log summary. On a --snapname clone, a managed
+#      volume the snapshot was taken with excluded ('not-in-snapshot') has no snapshot
+#      data, so it is left out of the clone; an excluded bind/device mpN is dropped.
+#   2. the non-'volume' branch carries a bind/device mpN to the new CT -- only for
+#      root@pam, the one user Proxmox lets set a non-volume mountpoint; anyone else still
+#      dies, as stock does -- instead of `die "unable to clone mountpoint ..."`. A bind/
+#      device rootfs is never carried and dies with the stock message for every caller.
+#   3. the 'vzclone' worker prints a task-log summary and warns when binds were carried or
+#      snapshot-excluded volumes were left out.
 # Imported-sub calls from the original (only extract_param) are fully qualified here, since
 # this body runs in package PVE::LXC::BindSnap which does not import them. Because it is a
 # whole-method copy it is only installed on a checksum-validated build (see apply_clone);
-# $vlabel is the pve-container version label, baked in for the summary.
+# the summary takes the pve-container version label from _vlabel() when it runs.
 sub _clone_code {
-    my ($vlabel) = @_;
     return sub {
         my ($param) = @_;
 
@@ -955,9 +1079,10 @@ sub _clone_code {
         my $fullclone = {};
         my $vollist = [];
         my $running;
-        # pve-bindsnap: bind/device mounts carried/excluded, collected in the loop below and
-        # reported by $realcmd; declared in the outer scope so the worker closure sees them.
-        my (@clone_carried, @clone_excluded);
+        # pve-bindsnap: bind/device mounts carried/excluded and snapshot-excluded volumes
+        # left out, collected in the loop below and reported by $realcmd; declared in the
+        # outer scope so the worker closure sees them.
+        my (@clone_carried, @clone_excluded, @clone_not_in_snapshot);
 
         my $lock_and_reload = sub {
             my ($vmid, $code) = @_;
@@ -1003,10 +1128,13 @@ sub _clone_code {
 
             # pve-bindsnap: effective BINDSNAP-EXCLUDE set for this clone. Read from the
             # source CT Notes for a live clone, or the snapshot's own frozen description
-            # for a --snapname clone (both are $src_conf->{description} at this scope).
-            # @clone_carried / @clone_excluded (declared in the outer scope) feed the
-            # task-log summary + warning below.
-            my $clone_excl = _snap_excludes($src_conf->{description}) // {};
+            # for a --snapname clone (both are $src_conf->{description} at this scope), and
+            # only if that conf has a bind/device mountpoint: snapshot_create applied the
+            # directive only then, so a plain CT's snapshot holds every volume.
+            # @clone_carried / @clone_excluded / @clone_not_in_snapshot (declared in the
+            # outer scope) feed the task-log summary + warnings below.
+            my $clone_excl = _conf_excludes('PVE::LXC::Config', $src_conf,
+                PVE::LXC::Config->can('foreach_volume_full'));
 
             my $sharedvm = 1;
             for my $opt (sort keys %$src_conf) {
@@ -1016,6 +1144,14 @@ sub _clone_code {
 
                 if (($opt eq 'rootfs') || ($opt =~ m/^mp\d+$/)) {
                     my $mp = PVE::LXC::Config->parse_volume($opt, $value);
+
+                    # pve-bindsnap: classify the mountpoint (see _clone_disposition). A
+                    # managed volume a --snapname clone's snapshot was taken without, and an
+                    # excluded bind/device mpN, are left out of the clone entirely.
+                    my $disp = _clone_disposition($opt, $mp->{type}, $clone_excl,
+                        snapshot => ($snapname ? 1 : 0), root => ($authuser eq 'root@pam' ? 1 : 0));
+                    if ($disp eq 'not-in-snapshot') { push @clone_not_in_snapshot, $opt; next; }
+                    if ($disp eq 'exclude') { push @clone_excluded, $opt; next; }
 
                     if ($mp->{type} eq 'volume') {
                         my $volid = $mp->{volume};
@@ -1055,11 +1191,16 @@ sub _clone_code {
                     } else {
                         # pve-bindsnap: bind/device mountpoint has no managed volume to
                         # clone. Carry the entry to the new CT unchanged (same host path/
-                        # device) unless a BINDSNAP-EXCLUDE directive drops it. Replaces
-                        # upstream's `die "unable to clone mountpoint ..."`. The carried
-                        # entry is NOT added to %mountpoints, so the forked realcmd never
-                        # tries to copy a volume for it.
-                        if ($clone_excl->{$opt}) { push @clone_excluded, $opt; next; }
+                        # device) -- root@pam only, since Proxmox lets no one else set a
+                        # non-volume mountpoint; excluded ones were dropped above. A bind/
+                        # device rootfs is never carried: it keeps upstream's die as-is.
+                        # Replaces upstream's `die "unable to clone mountpoint ..."` for mpN.
+                        # The carried entry is NOT added to %mountpoints, so the forked
+                        # realcmd never tries to copy a volume for it.
+                        die "unable to clone mountpoint '$opt' (type $mp->{type})\n"
+                            if $disp eq 'deny' && $opt eq 'rootfs';
+                        die "unable to clone mountpoint '$opt' (type $mp->{type}) -- carrying a bind/device mount to a "
+                            . "clone is only allowed for root\@pam\n" if $disp eq 'deny';
                         push @clone_carried, $opt;
                         $newconf->{$opt} = $value;
                     }
@@ -1137,15 +1278,19 @@ sub _clone_code {
 
             # pve-bindsnap: report what the overlay did to the 'vzclone' task log (parity
             # with the snapshot summary), and warn if bind/device mounts were carried (they
-            # share the source's host paths). Printed in the worker so it reaches the task
-            # Output; eval-guarded so it can never affect the clone itself.
+            # share the source's host paths) or snapshot-excluded volumes were left out.
+            # Printed in the worker so it reaches the task Output; eval-guarded so it can
+            # never affect the clone itself.
             eval {
                 print _clone_summary(
-                    vmid => $vmid, newid => $newid, vlabel => $vlabel,
+                    vmid => $vmid, newid => $newid, vlabel => _vlabel(),
                     cloned => [sort keys %$mountpoints],
                     carried => \@clone_carried, excluded => \@clone_excluded,
+                    not_in_snapshot => \@clone_not_in_snapshot, snapname => $snapname,
                 );
                 _task_warn(_clone_carry_warning(\@clone_carried)) if @clone_carried;
+                _task_warn(_clone_not_in_snapshot_warning(\@clone_not_in_snapshot, $snapname))
+                    if @clone_not_in_snapshot;
                 1;
             };
 
@@ -1272,7 +1417,7 @@ sub _clone_code {
     };
 }
 
-# Install the clone_vm override, gated by the @CLONE_GUARDED_FILES checksum. Called by the
+# Install the clone_vm override, gated by the clone_vm block checksum. Called by the
 # API2/LXC wrapper AFTER it has require()d the genuine upstream (which registers the stock
 # clone_vm). Idempotent and never-die-critical (the wrapper also eval-guards the call).
 sub apply_clone {
@@ -1283,8 +1428,7 @@ sub apply_clone {
         return;
     };
 
-    my ($sum, $per) = _config_checksum(map { _module_path($_) } @CLONE_GUARDED_FILES);
-    my $vlabel = _pkg_version('pve-container') // 'unknown';
+    my $sum = _clone_checksum(_module_path($CLONE_GUARDED_FILE));
     my $checksum_known = defined($sum) && exists $KNOWN_GOOD_CLONE_CHECKSUMS{$sum};
     my $bad_reason = (defined($sum) && exists $KNOWN_BAD_CLONE_CHECKSUMS{$sum})
         ? $KNOWN_BAD_CLONE_CHECKSUMS{$sum} : undef;
@@ -1295,20 +1439,24 @@ sub apply_clone {
     # exactly as upstream, no regression. CLONE_LOADED is still set (the wrapper chain works).
     if (!$checksum_known || defined $bad_reason) {
         my $why = defined $bad_reason ? "known-BAD ($bad_reason)" : "untested";
-        _log_banner("clone overlay loaded but NOT active: pve-container $vlabel clone_vm is "
-                  . "$why (combined sha256 $combined); bind-mount clones use stock behaviour. "
-                  . "Compatible builds: $COMPAT_URL");
+        _log_banner(sub {
+            "clone overlay loaded but NOT active: pve-container " . _vlabel() . " clone_vm is "
+              . "$why (clone_vm sha256 $combined); bind-mount clones use stock behaviour. "
+              . "Compatible builds: $COMPAT_URL";
+        });
         $CLONE_LOADED = 1;
         return;
     }
 
     my $info = eval { PVE::API2::LXC->map_method_by_name('clone_vm') };
     if ($info && ref($info) eq 'HASH' && ref($info->{code}) eq 'CODE') {
-        $info->{code} = _clone_code($vlabel);    # mutate the live, shared method definition
+        $info->{code} = _clone_code();    # mutate the live, shared method definition
         $CLONE_APPLIED = 1;
-        _log_banner("clone overlay active (pve-container $vlabel, checksum-validated; "
-                  . "combined sha256 $combined): bind/device mountpoints are carried to the "
-                  . "clone (BINDSNAP-EXCLUDE drops named mpN)");
+        _log_banner(sub {
+            "clone overlay active (pve-container " . _vlabel() . ", checksum-validated; "
+              . "clone_vm sha256 $combined): bind/device mountpoints are carried to the "
+              . "clone (BINDSNAP-EXCLUDE drops named mpN)";
+        });
     } else {
         _log("clone_vm method definition not found; clone override DISABLED (stock behaviour)");
     }

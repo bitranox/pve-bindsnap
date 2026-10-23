@@ -6,7 +6,7 @@ the latest run; the test plan that produces it is in [testing.md](testing.md).
 ## Off the node
 
 `perl -c` clean (both `BindSnap.pm` and `API2/LXC.wrapper.pm`), `prove -I lib t/` =
-**221 tests pass**, `shellcheck` and `shfmt` clean.
+**285 tests pass**, `shellcheck` and `shfmt` clean.
 The unit tests cover the pure logic: the checksum combine (it reproduces both the
 documented `sha256sum` pipeline and the real value from a node), the `BINDSNAP-FORCE-RUNNING`/
 `BINDSNAP-UNSUPPORTED` matching (case-sensitive, underscore-glue tolerant, read from the
@@ -143,8 +143,10 @@ two bind mounts: `mp0`->`/data`, `mp1`->`/extra`):
 
 Validation run that added `6.1.12` to both known-good tables, on a Proxmox VE 9.2.6 node
 (pve-container **6.1.12**, libpve-guest-common-perl 6.0.5; snapshot combined checksum
-`29dc5ce7...1bce914f`, clone checksum `1ace1c4d...f7e7afc7`). A throwaway unprivileged CT
-carried one bind mount (`mp0` -> a host dir) and one managed volume (`mp1` ->
+`29dc5ce7...1bce914f`, clone checksum `1ace1c4d...f7e7afc7` (the whole-file hash used
+through 1.3.0; from 1.4.0 the clone guard hashes the `clone_vm` block,
+`7a10c90b...58aa56c8`, identical for 6.1.10-6.1.14)). A throwaway unprivileged CT carried
+one bind mount (`mp0` -> a host dir) and one managed volume (`mp1` ->
 `subvol-<vmid>-disk-1`).
 
 **Source review first.** Diffing the 6.1.10 and 6.1.12 package files showed the wrapped
@@ -181,6 +183,68 @@ keyword anywhere except where one is by design:
 
 The test CT and both clones were destroyed afterward, with no leftover datasets, zfs
 snapshots, dump files or bind directories.
+
+## pve-container 6.1.14
+
+Source review that added `6.1.14` to both known-good tables (pve-container **6.1.14**,
+libpve-guest-common-perl 6.0.5; snapshot combined checksum `04aada64...9e225a77`, clone
+checksum `2ea44bdd...a43b635a` (the whole-file hash used through 1.3.0; from 1.4.0 the clone
+guard hashes the `clone_vm` block, `7a10c90b...58aa56c8`, identical for 6.1.10-6.1.14)).
+
+**Checksum provenance.** The values were computed from the published
+`pve-container_6.1.14_all.deb` and `libpve-guest-common-perl_6.0.5_all.deb` on
+`download.proxmox.com` (trixie, pve-no-subscription), with the same pipelines the overlay
+logs. Run over the published `pve-container_6.1.12_all.deb`, that method reproduces the
+6.1.12 entries exactly (`29dc5ce7...1bce914f` and `1ace1c4d...f7e7afc7`, the 1.3.0
+whole-file clone hash), so it matches what a node computes. libpve-guest-common-perl is
+still at 6.0.5, so `AbstractConfig.pm` is the same `70432cce...61871494` as in the 6.1.12
+pair.
+
+**Source diff 6.1.12 -> 6.1.14.** The wrapped surface is unchanged:
+
+- `LXC/Config.pm`: the `entrypoint` and `env` option patterns gain a `\z`
+  anchor, and `write_pct_config` rejects CR as well as LF in rendered values, now also in
+  the `env` entries and raw `lxc.*` keys. None of it is on the snapshot path
+  (`foreach_volume_full`, `snapshot_create`/`delete`/`rollback`, `has_feature`). The
+  description, where the overlay freezes a `BINDSNAP-EXCLUDE` line into the snapshot
+  comment, is still written as encoded `#` comment lines and is not subject to the new check.
+- `API2/LXC.pm`: the single change is an added `check_protection` on the target CT in
+  `move_volume` (upstream fix #7148). The `clone_vm` method definition is byte-identical to
+  6.1.12 (418 lines, `cmp` clean), so the body the overlay copies still matches.
+
+**On the node.** On a three-node Proxmox VE 9.2.20 cluster (pve-container 6.1.14,
+libpve-guest-common-perl 6.0.5), every node computes both entries from its installed files:
+the combined snapshot checksum `04aada64...9e225a77` and the clone checksum
+`2ea44bdd...a43b635a`, plus the `clone_vm` block checksum `7a10c90b...58aa56c8` that 1.4.0
+uses. The 1.4.0 run on that cluster is below.
+
+## 1.4.0 on a live cluster (pve-container 6.1.14)
+
+Three Proxmox VE 9.2.20 nodes (pve-container 6.1.14, libpve-guest-common-perl 6.0.5), in
+production, 47 CTs. Disk legend as before: a CT's `rootfs` and managed `mpN` are captured, its
+bind/device `mpN` are skipped.
+
+**Install.** `install.sh` ran from a checkout of the release on each node in turn and exited 0.
+On every node: both banners read `checksum-validated`, `dpkg-divert --list` shows the two
+pve-bindsnap diverts, the module loads under `perl -T` with `APPLIED=1 CLONE_APPLIED=1`,
+pvedaemon, pveproxy and pvestatd are active, the API lists the node's CTs, the GUI answers, and
+the cluster stays quorate. **PASS.**
+
+**Snapshot traffic.** In the first 70 minutes, two runs of the cluster's hourly snapshot job (an
+API token, with its own retention deletes) and one manual `pct snapshot` produced 141
+snapshot and delete tasks across the three nodes. All finished `TASK OK`.
+
+| case                                                                                        | result                                                                                          |
+|---------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| running bind-mount CT, standing `BINDSNAP-FORCE-RUNNING`, hourly job (10 CTs, 1-5 binds each) | kept rootfs, skipped every bind, freeze/thaw, summary `: standing`, checksum `validated` (PASS) |
+| running bind-mount CT, `pct snapshot` as root with `BINDSNAP-FORCE-RUNNING` in the description | kept rootfs, skipped `mp0, mp1`, freeze/thaw, summary `: used` (PASS)                           |
+| delete of that snapshot                                                                     | `removed rootfs; bind/device mp0, mp1 untouched` (PASS)                                         |
+| CT without bind mounts (rootfs only, or rootfs + a managed `mp0`)                           | summary `no bind/device mounts -- stock snapshot, overlay made no change` (PASS)                |
+| retention delete on a CT without bind mounts                                                | `removed rootfs` (plus `mp0` where managed) (PASS)                                              |
+
+Not covered by this run: clone (the `root@pam` gate, the bind-`rootfs` refusal, a
+`--snapname` clone that leaves out excluded volumes), rollback, `BINDSNAP-EXCLUDE`, and the
+untested-build and known-bad paths. Those are steps 1-9g of the [test plan](testing.md).
 
 ## Aftermath
 

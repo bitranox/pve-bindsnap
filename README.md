@@ -5,17 +5,22 @@ entries pointing at host paths). Proxmox greys snapshots out and refuses the clo
 overlay enables both again, delegating to Proxmox's genuine snapshot and clone code
 rather than forking it.
 
-> Release 1.2.0. It passes the unit tests and has been exercised on Proxmox VE 9.2 / 9.3
-> (pve-container 6.1.10 and 6.1.12) across the full install lifecycle and matrix: create /
-> rollback / delete (including a data-level rollback), the `BINDSNAP-FORCE-RUNNING`,
-> `BINDSNAP-UNSUPPORTED` and `BINDSNAP-EXCLUDE` paths, each both per-snapshot and as a
-> standing CT-Notes directive, plus the known-bad hard block, and it runs in the author's own
-> production cluster.
+> Release 1.4.0. It passes the unit tests, and the overlay as of 1.2.0 has been exercised on
+> Proxmox VE 9.2 / 9.3 (pve-container 6.1.10 and 6.1.12) across the full install lifecycle
+> and matrix: create / rollback / delete (including a data-level rollback), the
+> `BINDSNAP-FORCE-RUNNING`, `BINDSNAP-UNSUPPORTED` and `BINDSNAP-EXCLUDE` paths, each both
+> per-snapshot and as a standing CT-Notes directive, plus the known-bad hard block. 1.4.0
+> runs on the author's three-node production cluster (PVE 9.2.20, pve-container 6.1.14),
+> where it snapshots and deletes running bind-mount CTs, from `pct` and from an automated
+> snapshot job.
 > `pct clone` of a bind-mount container is covered too (the binds are carried to the clone,
 > `BINDSNAP-EXCLUDE` drops them), gated by its own checksum so an untested build falls back
-> to stock. It hasn't been run against pve-container versions other than those two,
-> so on a build it doesn't recognise it refuses by default until you opt in. It's a small,
-> commented overlay: read the source and the [test plan](docs/testing.md) before you deploy.
+> to stock. The 1.4.0 changes (the `root@pam` clone gate, leaving out volumes a snapshot
+> excluded, honouring a snapshot's exclude directive only on a bind-mount CT) are
+> unit-tested; their on-node run, like clone and rollback on 6.1.14, is pending. It hasn't
+> been run against pve-container versions other than those, so on a build it doesn't
+> recognise it refuses by default until you opt in. It's a small, commented overlay: read the
+> source and the [test plan](docs/testing.md) before you deploy.
 >
 > The risks are low: the wrapper loads the overlay eval-guarded (a bug in it just falls
 > back to stock), the installer pre-flights and rolls back on failure, `uninstall.sh`
@@ -39,8 +44,8 @@ is left untouched.
 
 | What's in the container config  | In the snapshot?         | In a clone?                  | Notes                                                                                                                                         |
 |---------------------------------|--------------------------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| `rootfs` (the root disk)        | **Yes**                  | **Yes** (copied)             | Proxmox-managed volume; always kept                                                                                                           |
-| `mpN`: a storage volume         | **Yes**, unless excluded | **Yes** (copied)             | Managed volume (e.g. a data disk)                                                                                                             |
+| `rootfs` (the root disk)        | **Yes**                  | **Yes** (copied)             | Proxmox-managed volume; always kept. A bind/device rootfs is never carried (clone refused, as stock)                                          |
+| `mpN`: a storage volume         | **Yes**, unless excluded | **Yes** (copied)             | Managed volume (e.g. a data disk); a `--snapname` clone leaves it out if that bind-CT snapshot excluded it                                    |
 | `mpN`: a bind mount (host path) | **No** (setting kept)    | **Carried**, unless excluded | Only the mount *setting* is snapshotted/cloned and restored on rollback;<br>the host *data* is never snapshotted, cloned, or rolled back      |
 | `devN`: a passthrough device    | **No** (setting kept)    | **Carried**                  | Only the mount *setting* is snapshotted/cloned and restored on rollback;<br>the host device/data is never snapshotted, cloned, or rolled back |
 
@@ -215,6 +220,11 @@ Only `mpN` mountpoints can be excluded; the `rootfs` is always kept. This applie
 bind-mount containers (the ones the overlay engages for); a plain container the overlay
 doesn't touch is unaffected.
 
+Once a snapshot exists, leave the `BINDSNAP-EXCLUDE` line in *its* description alone (GUI
+Snapshots -> Edit, or the API): it is the record of what the snapshot captured, and adding
+or removing it afterwards makes rollback, delete and `--snapname` clone act on the wrong
+volumes ([details](docs/bindsnap-exclude.md#frozen-into-the-snapshot)).
+
 The GUI, the API, and every `pct` invocation are all covered: the overlay rides in on
 the `PVE::LXC::Config` module, so every process that loads it gets it. The [design
 notes](docs/design.md) explain how.
@@ -254,9 +264,19 @@ container's Notes, the same directive used for snapshots:
 ```
 
 An excluded mount is dropped from the clone instead of carried. (`BINDSNAP-EXCLUDE` only
-drops bind/device mounts from a clone; a managed `mpN` volume is always cloned, since for a
-clone there is a real volume to copy.) Cloning a container without bind/device mounts is
-completely stock, on any version.
+drops bind/device mounts from a clone; a managed `mpN` volume is cloned, since for a clone
+there is a real volume to copy. The one exception is a `--snapname` clone of a snapshot that
+was taken with that volume excluded: the snapshot holds no data for it, so the clone leaves
+it out and says so in the task log and a `TASK WARNINGS`.) Cloning a container without
+bind/device mounts is completely stock, on any version.
+
+Carrying a bind/device mount to a clone needs `root@pam`, because Proxmox lets no other user
+set a non-volume mountpoint. Any other user gets `unable to clone mountpoint 'mp0' (type
+bind) -- carrying a bind/device mount to a clone is only allowed for root@pam`; clone as
+`root@pam`, or exclude the mount as above. A bind/device `rootfs` is never carried, not even
+for `root@pam`: the clone would share the source's root directory, and the clone's setup
+(hostname, machine-id, network) would rewrite the *source* container. Such a clone gets the
+stock refusal, `unable to clone mountpoint 'rootfs' (type bind)`.
 
 A note on running containers and snapshots: Proxmox already requires `--snapname` to fully
 clone a *running* container ("Full clone of a running container is only possible from a

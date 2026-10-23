@@ -18,6 +18,79 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.4.0] - 2026-10-23
+
+### Security
+
+- A clone carries bind/device mounts only for `root@pam`. Any other user gets the stock-style
+  refusal, matching Proxmox's rule that only `root@pam` may set a non-volume mountpoint.
+- A clone never carries a bind/device `rootfs`, not even for `root@pam`: the clone would share
+  the source's root directory, and its setup would rewrite the source's hostname, machine-id
+  and network. Every caller gets the stock refusal.
+
+### Fixed
+
+- A `--snapname` clone from a snapshot of a bind-mount CT that excluded managed volumes
+  leaves them out (they have no snapshot data) instead of failing. The task summary names
+  each one, and the task warns about it. A plain CT's snapshot, taken stock with every
+  volume, clones all of them even if its description has a `BINDSNAP-EXCLUDE` directive.
+- Delete and rollback of a plain CT's snapshot no longer skip a volume named in a
+  `BINDSNAP-EXCLUDE` directive that the snapshot never applied. Rollback had left the volume
+  un-rewound, and delete had left its snapshot behind.
+- `_known_good_list` sorts versions numerically rather than as strings, and orders builds with
+  the same version by checksum.
+- The module extracts the `clone_vm` block for the clone checksum exactly as the documented
+  `awk` command does: the `name => ...clone_vm...` line matches any quote character, and a
+  final line without a trailing newline hashes the same.
+- The install pre-flight checks print the perl error when they fail, instead of discarding it.
+
+### Documentation
+
+- [docs/test-results.md](docs/test-results.md) records the 1.4.0 install on a three-node
+  PVE 9.2.20 cluster with pve-container 6.1.14, and its snapshot and delete runs on running
+  bind-mount CTs. pve-container 6.1.14 is marked tested for snapshot and delete; clone and
+  rollback on it are still to be run.
+
+### Changed
+
+- The clone guard hashes only the `clone_vm` method block, not all of `PVE/API2/LXC.pm`. One
+  hash, `7a10c90b...58aa56c8`, covers 6.1.10 through 6.1.14, so an unrelated upstream change
+  elsewhere in that file no longer disables clone until a release lists it.
+- The install pre-flight checks run under `perl -T`, like the daemons. `dpkg-query` runs only
+  when a message needs the pve-container version.
+
+### Added
+
+- `tools/vet-build.sh` checksums a pve-container build against the known-good and known-bad
+  tables. With a reference version it also diffs `Config.pm` and the `clone_vm` block.
+- A test checks that [docs/compatible-versions.md](docs/compatible-versions.md) matches the
+  module's checksum tables, and tests cover the clone-block checksum.
+- CI syntax-checks `lib/PVE/LXC/Config.wrapper.pm`.
+
+## [1.3.0] - 2026-10-22
+
+### Added
+
+- pve-container **6.1.14** joins both known-good tables: the snapshot guard (combined
+  sha256 `04aada64...9e225a77`, with libpve-guest-common-perl 6.0.5) and the clone guard
+  (`2ea44bdd...a43b635a`). Bind-mount containers on that build now snapshot and clone with
+  no keyword. The checksums were computed from the published `pve-container_6.1.14_all.deb`
+  and `libpve-guest-common-perl_6.0.5_all.deb`, using the same method that reproduces the
+  6.1.12 values exactly. A source diff against 6.1.12 confirms the wrapped surface is
+  unchanged: `LXC/Config.pm` only tightens two option patterns and rejects CR/LF in
+  rendered config values in `write_pct_config`, and `API2/LXC.pm` only adds a protection
+  check in `move_volume`, so the snapshot helpers and the copied `clone_vm` body are
+  byte-identical. Both checksums were confirmed on a three-node PVE 9.2.20 cluster running
+  6.1.14. See [docs/test-results.md](docs/test-results.md).
+
+## [1.2.2] - 2026-08-27
+
+### Documentation
+
+- The `proxmox-bindsnap` skill's description now attributes `unable to clone mountpoint` to
+  `pct clone` alone (the snapshot path fails a `has_feature('snapshot')` gate, a different
+  symptom), and its frontmatter name is `infra-proxmox-bindsnap`. Overlay code unchanged.
+
 ## [1.2.1] - 2026-08-03
 
 ### Documentation

@@ -81,6 +81,38 @@ pct destroy <newid>; pct destroy <newid2>                 # cleanup the test clo
 # 9c. on an UNTESTED build the override is not installed: pct clone falls back to the stock
 #     die ("unable to clone mountpoint ... type bind"), i.e. no regression. Rehearse it by
 #     commenting out the %KNOWN_GOOD_CLONE_CHECKSUMS entry and reinstalling.
+# 9d. a non-root caller cannot carry a bind mount: only root@pam may set a non-volume
+#     mountpoint. Use an API token of a non-root user that has VM.Clone on the CT and
+#     VM.Allocate / Datastore.AllocateSpace for the new one (pct always runs as root@pam):
+pct stop <vmid>
+curl -sk -X POST -H 'Authorization: PVEAPIToken=<user>@pve!<tokenid>=<secret>' \
+  "https://localhost:8006/api2/json/nodes/$(hostname)/lxc/<vmid>/clone" -d newid=<newid3>
+                                                          # expect: "unable to clone mountpoint 'mpN' (type bind)
+                                                          # -- carrying a bind/device mount to a clone is only
+                                                          # allowed for root@pam"
+ls /etc/pve/lxc/<newid3>.conf                             # expect: No such file (no stray CT config left behind)
+pct config <vmid> | grep -E '^lock' || echo "source CT not left locked"
+# 9e. the same CT as root@pam: the bind mount is carried (as in 9)
+pct clone <vmid> <newid3> --hostname clone-root           # proceeds; "carried ..." WARN
+pct config <newid3> | grep -E 'mp'                        # bind mpN carried (same host path)
+pct destroy <newid3>
+# 9f. --snapname clone of a BIND-MOUNT CT whose snapshot excluded a managed volume (mp1 as
+#     in step 7): the snapshot has no mp1@snap, so the clone leaves mp1 out and warns
+pct snapshot <vmid> clsnap1 --description "BINDSNAP-EXCLUDE: mp1"
+pct clone <vmid> <newid4> --snapname clsnap1 --hostname clone-snap
+                                                          # TASK WARNINGS: "left out mp1 (excluded from snapshot
+                                                          # 'clsnap1', no snapshot data to clone)"
+pct config <newid4> | grep -E '^mp1' || echo "mp1 correctly left out of the clone"
+pct destroy <newid4>; pct delsnapshot <vmid> clsnap1
+# 9g. --snapname clone of a PLAIN CT (managed volumes only, e.g. rootfs + mp1) whose snapshot
+#     description has the directive: a plain CT is snapshotted stock with every volume, so
+#     the directive was never applied and mp1 IS cloned (no "left out" warning)
+pct snapshot <plainid> clsnap2 --description "BINDSNAP-EXCLUDE: mp1"
+zfs list -t snapshot | grep subvol-<plainid>-disk-1       # mp1: expect @clsnap2 (captured)
+pct clone <plainid> <newid5> --snapname clsnap2 --hostname clone-plain
+pct config <newid5> | grep -E '^mp1'                      # mp1 present: a NEW subvol-<newid5>
+pct destroy <newid5>; pct delsnapshot <plainid> clsnap2   # delete removes mp1@clsnap2 too
+zfs list -t snapshot | grep clsnap2 || echo "no clsnap2 snapshot left behind"
 ```
 
 The refusal messages are worth a read in the task **Output** (GUI) or `pct`'s output: the

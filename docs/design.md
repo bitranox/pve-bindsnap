@@ -95,12 +95,18 @@ clone loop walks the raw config keys rather than going through `foreach_volume_f
 snapshot filter can't reach it. The non-`volume` branch just dies; the branch right next to
 it (`# copy everything else`) already copies any other option to the new container verbatim.
 
-So the change is small: for a `rootfs`/`mpN` whose type is not `volume`, carry the entry to
-the clone unchanged (it points at the same host path/device) instead of dying, unless a
+So the change is small: for an `mpN` whose type is not `volume`, carry the entry to the
+clone unchanged (it points at the same host path/device) instead of dying, unless a
 `BINDSNAP-EXCLUDE` directive drops it. Managed volumes and the rootfs clone exactly as
-stock. A carried bind mount is not added to the clone's volume list, so the forked worker
-never tries to copy a volume for it; it simply appears in the new container's config and
-`mount_all` mounts the same host path, as it did on the source.
+stock. A bind/device `rootfs` is never carried and keeps the stock die for every caller:
+carrying it would make the clone share the source's root directory, and `post_clone_hook`
+would then rewrite the hostname, machine-id and network setup in the *source* container. A
+carried bind mount is not added to the clone's volume list, so the forked worker never tries
+to copy a volume for it; it simply appears in the new container's config and `mount_all`
+mounts the same host path, as it did on the source. The carry is for `root@pam` only, since
+Proxmox lets no other user set a non-volume mountpoint; anyone else still gets the die,
+extended to say so. A `--snapname` clone of a bind-mount container also leaves out a managed
+volume that snapshot excluded, since the snapshot holds no data for it to clone.
 
 The override mechanism differs from the snapshot one, because `clone_vm` is registered as an
 anonymous `register_method` *closure*, not a named sub: there is nothing to redefine by
@@ -116,7 +122,8 @@ One thing the clone override does that the snapshot overlay does not: it install
 of upstream's `clone_vm` body (with the one change), rather than wrapping live coderefs.
 That is unavoidable, because the die sits inline in a closure with no seam to wrap. It also
 makes the override version-fragile, so it has its **own** checksum guard, separate from the
-snapshot guard and hashing only `PVE/API2/LXC.pm` (the file the copy comes from). On a build
+snapshot guard and hashing only the `clone_vm` method block of `PVE/API2/LXC.pm` (the code
+the copy comes from, including its permissions and parameter schema). On a build
 whose `clone_vm` the copy hasn't been vetted against, the override is simply not installed:
 `clone_vm` stays stock (bind clones refused, the original behaviour), so there is never a
 regression and never a stale copy dispatched against a changed Proxmox. A `pve-container`

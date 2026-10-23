@@ -65,22 +65,29 @@ sits inline in a closure with no seam to wrap), so running it against a changed 
 would mean running stale code. To prevent that, the clone override is **install-gated**: it
 is only put in place when the checksum matches.
 
-It hashes a single file, `/usr/share/perl5/PVE/API2/LXC.pm`, the one the copy comes from
-(its `clone_vm` is the entire coupling surface; the helpers it calls are stable named
-interfaces). The same two-table shape applies, with clone-specific tables:
+It hashes only the `clone_vm` method block of `/usr/share/perl5/PVE/API2/LXC.pm`: the
+lines from its `__PACKAGE__->register_method({` to its closing `});`, which include the
+method's permissions and parameter schema as well as the body that is copied. That block is
+exactly the copied surface. The rest of the file is code the overlay does not copy, and the
+helpers the body calls live in other modules that hashing the whole file never covered
+either, so a whole-file hash added no protection, only churn: every unrelated upstream
+change elsewhere in `LXC.pm` (a new check in `create_vm` or `move_volume`) disabled the
+clone override until a new release listed its hash. With the block hash, a build whose
+`clone_vm` is unchanged keeps the same hash. The same two-table shape applies, with
+clone-specific tables:
 
 ```perl
 my %KNOWN_GOOD_CLONE_CHECKSUMS = (
-    '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198' => '6.1.10',
+    '7a10c90b920b56e645bba6798daefc49ca32150cf670551a81176e2658aa56c8' => '6.1.10-6.1.14',
 );
 ```
 
-Reproduce it the same way (use `LXC.pm.distrib` if the overlay is installed):
+Reproduce it from the shell (use `LXC.pm.distrib` if the overlay is installed):
 
 ```bash
 api=/usr/share/perl5/PVE/API2/LXC.pm
 [ -e "$api.distrib" ] && api="$api.distrib"
-sha256sum "$api" | awk '{print $1}' | sha256sum | awk '{print $1}'
+awk '/^__PACKAGE__->register_method\(\{$/{hit=0; buf=""} {buf=buf $0 "\n"} /^    name => .clone_vm.,$/{hit=1} hit&&/^\}\);$/{printf "%s", buf; exit}' "$api" | sha256sum | awk '{print $1}'
 ```
 
 On a build that isn't in the clone known-good table, the override is **not installed** at
@@ -122,6 +129,9 @@ combined hash. To get that version supported:
 `pve-container 6.1.12`, combined hash
 `29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f` (per file:
 `Config.pm` `5d661402...e9ffdb2c`, `AbstractConfig.pm` `70432cce...61871494`, from
+libpve-guest-common-perl 6.0.5), and `pve-container 6.1.14`, combined hash
+`04aada64089cbf97d1598ea0b102aa61d38bfd456526be4fff5ce4289e225a77` (per file:
+`Config.pm` `7742e9a4...8338e79a`, `AbstractConfig.pm` `70432cce...61871494`, again from
 libpve-guest-common-perl 6.0.5). Every node in a cluster on the same package versions
 shares those exact bytes, so one entry covers the whole cluster at that version.
 

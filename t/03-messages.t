@@ -59,6 +59,46 @@ my $kgl = PVE::LXC::BindSnap->can('_known_good_list') or BAIL_OUT('_known_good_l
 like($kgl->(), qr/pve-container 6\.1\.10/, 'lists the supported version');
 like($kgl->(), qr/1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106/, 'lists its checksum');
 
+# ordered by version label per component (6.1.9 < 6.1.10 < 6.2.0), not as strings
+{
+    no warnings 'once';
+    local %PVE::LXC::BindSnap::KNOWN_GOOD_CHECKSUMS = (
+        aaaa => '6.1.10', bbbb => '6.1.9', cccc => '6.2.0',
+    );
+    is($kgl->(),
+        "    pve-container 6.1.9  bbbb\n"
+      . "    pve-container 6.1.10  aaaa\n"
+      . "    pve-container 6.2.0  cccc",
+        'lists known-good builds in numeric version order');
+
+    # equal labels (two builds of one version) tie-break on the checksum, deterministically
+    local %PVE::LXC::BindSnap::KNOWN_GOOD_CHECKSUMS = (
+        zzzz => '6.1.10', mmmm => '6.1.10', aaaa => '6.1.10',
+    );
+    is($kgl->(),
+        "    pve-container 6.1.10  aaaa\n"
+      . "    pve-container 6.1.10  mmmm\n"
+      . "    pve-container 6.1.10  zzzz",
+        'equal version labels sort by checksum');
+}
+
+# _vercmp directly: numeric per component, a Debian-style revision sorts after its base,
+# a non-numeric component compares as a string -- and none of it warns
+{
+    my $vc = PVE::LXC::BindSnap->can('_vercmp') or BAIL_OUT('_vercmp missing');
+    my @warn;
+    local $SIG{__WARN__} = sub { push @warn, @_ };
+    is($vc->('6.1.9', '6.1.10'),     -1, '_vercmp: 6.1.9 < 6.1.10 (numeric, not string)');
+    is($vc->('6.1.10', '6.1.9'),      1, '_vercmp: 6.1.10 > 6.1.9');
+    is($vc->('6.1.10', '6.1.10'),     0, '_vercmp: equal labels compare equal');
+    is($vc->('6.1.10-1', '6.1.10'),   1, '_vercmp: 6.1.10-1 sorts after 6.1.10 (longer label)');
+    is($vc->('6.1.10', '6.1.10-1'),  -1, '_vercmp: 6.1.10 sorts before 6.1.10-1');
+    is($vc->('6.1.10-1', '6.1.10-2'), -1, '_vercmp: revision compares numerically');
+    is($vc->('6.1.x', '6.1.10'),      1, '_vercmp: a non-numeric component compares as a string');
+    is($vc->('6.1.beta', '6.1.alpha'), 1, '_vercmp: two non-numeric components compare as strings');
+    is_deeply(\@warn, [], '_vercmp: no warnings on any of these');
+}
+
 # --- refusal messages (pure, so unit-testable). They are the FULL multi-line explanation
 #     printed to the task log (which preserves newlines); snapshot_create dies with a
 #     separate short one-line status that PVE puts in TASK ERROR. ---
