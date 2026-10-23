@@ -39,6 +39,10 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
   un-rewound, and delete had left its snapshot behind.
 - `_known_good_list` sorts versions numerically rather than as strings, and orders builds with
   the same version by checksum.
+- The module extracts the `clone_vm` block for the clone checksum exactly as the documented
+  `awk` command does: the `name => ...clone_vm...` line matches any quote character, and a
+  final line without a trailing newline hashes the same.
+- The install pre-flight checks print the perl error when they fail, instead of discarding it.
 
 ### Changed
 
