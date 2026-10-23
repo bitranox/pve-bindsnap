@@ -4,8 +4,9 @@
 # =====================================================================
 # pve-bindsnap -- installer
 # ---------------------------------------------------------------------
-# Diverts PVE::LXC::Config and installs a thin wrapper that loads the genuine
-# upstream plus the snapshot overlay, so the GUI, API and pct are all covered.
+# Diverts PVE::LXC::Config and PVE::API2::LXC and installs a thin wrapper for each that
+# loads the genuine upstream plus the overlay (snapshot and clone respectively), so the
+# GUI, API and pct are all covered.
 # Fully reversible (uninstall.sh). The source is on GitHub if you want to read it
 # first. Run on ONE node only; re-running is idempotent. Works from a checkout
 # (./install.sh) and piped:
