@@ -182,6 +182,38 @@ keyword anywhere except where one is by design:
 The test CT and both clones were destroyed afterward, with no leftover datasets, zfs
 snapshots, dump files or bind directories.
 
+## pve-container 6.1.14
+
+Source review that added `6.1.14` to both known-good tables (pve-container **6.1.14**,
+libpve-guest-common-perl 6.0.5; snapshot combined checksum `04aada64...9e225a77`, clone
+checksum `2ea44bdd...a43b635a`).
+
+**Checksum provenance.** The values were computed from the published
+`pve-container_6.1.14_all.deb` and `libpve-guest-common-perl_6.0.5_all.deb` on
+`download.proxmox.com` (trixie, pve-no-subscription), with the same pipelines the overlay
+logs. Run over the published `pve-container_6.1.12_all.deb`, that method reproduces the
+6.1.12 entries exactly (`29dc5ce7...1bce914f` and `1ace1c4d...f7e7afc7`), so it matches what
+a node computes. libpve-guest-common-perl is still at 6.0.5, so `AbstractConfig.pm` is the
+same `70432cce...61871494` as in the 6.1.12 pair.
+
+**Source diff 6.1.12 -> 6.1.14.** The wrapped surface is unchanged:
+
+- `LXC/Config.pm`: the `entrypoint` and `env` option patterns gain a `\z`
+  anchor, and `write_pct_config` rejects CR as well as LF in rendered values, now also in
+  the `env` entries and raw `lxc.*` keys. None of it is on the snapshot path
+  (`foreach_volume_full`, `snapshot_create`/`delete`/`rollback`, `has_feature`). The
+  description, where the overlay freezes a `BINDSNAP-EXCLUDE` line into the snapshot
+  comment, is still written as encoded `#` comment lines and is not subject to the new check.
+- `API2/LXC.pm`: the single change is an added `check_protection` on the target CT in
+  `move_volume` (upstream fix #7148). The `clone_vm` method definition is byte-identical to
+  6.1.12 (418 lines, `cmp` clean), so the body the overlay copies still matches.
+
+**On the node.** On a three-node Proxmox VE 9.2.20 cluster (pve-container 6.1.14,
+libpve-guest-common-perl 6.0.5), every node computes both entries from its installed files:
+the combined snapshot checksum `04aada64...9e225a77` and the clone checksum
+`2ea44bdd...a43b635a`. The functional matrix from the 6.1.12 run has not been repeated with
+this release.
+
 ## Aftermath
 
 The test CT was restored to its original config (rootfs only, original Notes, no test

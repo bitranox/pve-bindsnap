@@ -125,7 +125,7 @@ bind snapshots are refused and clone stays stock. The correct response is NOT to
 Which builds count as vetted is decided by the overlay, not from memory: the journal line in
 section 2 tells you about THIS node's build, and
 https://github.com/bitranox/pve-bindsnap/blob/main/docs/compatible-versions.md is the
-authoritative list. As of pve-bindsnap **1.2.0** it holds **pve-container 6.1.10 and 6.1.12**
+authoritative list. As of pve-bindsnap **1.3.0** it holds **pve-container 6.1.10, 6.1.12 and 6.1.14**
 for both guards. Mind that the snapshot checksum also covers `AbstractConfig.pm`, which ships in
 `libpve-guest-common-perl` rather than in `pve-container`, so an apt upgrade of EITHER package
 can move a node into TEST mode.
