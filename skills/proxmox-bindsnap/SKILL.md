@@ -74,6 +74,7 @@ perl -e 'require PVE::LXC::Config; require PVE::API2::LXC;
 | Snapshot a STOPPED bind-mount CT, tested build | Just `pct snapshot <vmid> <name>`                                  |
 | Snapshot a RUNNING CT                          | Add `BINDSNAP-FORCE-RUNNING` (section 4)                           |
 | Build shows TEST mode / untested               | Opt in with `BINDSNAP-UNSUPPORTED`, then get it vetted (section 5) |
+| Need a safety net NOW on an untested build     | `vzdump <vmid> --storage <store>`, snapshot mode (section 5)       |
 | Keep a managed data disk out of the snapshot   | `BINDSNAP-EXCLUDE: mpN` in CT Notes (section 4)                    |
 | Clone a bind-mount CT                          | `pct clone` works; binds are carried (section 6)                   |
 | Clone must NOT inherit a bind/data mount       | `BINDSNAP-EXCLUDE: mpN` in the SOURCE CT Notes                     |
@@ -132,6 +133,16 @@ can move a node into TEST mode.
 
 A **known-BAD** build is a hard block: `BINDSNAP-UNSUPPORTED` will NOT override it; update
 pve-container or use `zfs snapshot` directly.
+
+**A pre-change safety net on a build the guard refuses:** take a stock backup,
+`vzdump <vmid> --storage <store>`. The overlay passes every `vzdump` call straight to stock code
+on any build, tested, untested or known-BAD, and stock `vzdump` leaves bind and device mounts out
+of the archive (their data is host data, outside Proxmox storage) and backs up only the rootfs and
+the `volume` mount points marked `backup=1`. It needs no marker and no raw `zfs snapshot`. Keep
+the default `--mode snapshot`; `--mode stop` stops the container for the backup and starts it
+again, which re-runs everything the container does at boot. A boot unit that pulls and recreates
+its containers then performs, before you are ready, the very change the backup was meant to
+precede.
 
 ## 6. Clone
 

@@ -18,6 +18,21 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.2.3] - 2026-10-30
+
+### Documentation
+
+- The `proxmox-bindsnap` skill names `vzdump --mode snapshot` as the safety net on a pve-container
+  build the checksum guard refuses: a backup snapshot passes through to stock and leaves the bind
+  mounts out. Overlay code unchanged.
+
+## [1.2.2] - 2026-08-27
+
+### Documentation
+
+- The `proxmox-bindsnap` skill attributes the `unable to clone mountpoint` error to `pct clone`, not
+  `pct snapshot`. Overlay code unchanged.
+
 ## [1.2.1] - 2026-08-03
 
 ### Documentation
