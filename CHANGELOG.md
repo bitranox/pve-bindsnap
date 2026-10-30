@@ -18,6 +18,27 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.3.0] - 2026-10-30
+
+### Added
+
+- Every guard state from pve-container **6.0.18 to 6.1.16** joins both known-good tables (11
+  snapshot and 9 clone checksums, up from 2 each), covering Proxmox VE 9.1 and 9.2. Each state
+  ran the full [test plan](docs/testing.md) on its own nested PVE node: 15 nodes, every case
+  passing, see [test results](docs/test-results.md). A source diff against 6.1.10 came first:
+  the snapshot surface differs only by two freeze/thaw log lines (guest-common 6.0.2), and the
+  copied `clone_vm` is byte-identical from 6.1.7 on.
+- On 6.0.18 to 6.1.6 the clone override runs the 6.1.10 `clone_vm` copy, which differs from
+  those builds' own method in an error text, one task-log line and the SDN IPAM owner id (the
+  new CT id, as upstream from 6.1.7). Documented in
+  [compatible versions](docs/compatible-versions.md).
+- A table label may name several builds (`6.1.15, 6.1.16`) when they share a checksum.
+
+### Fixed
+
+- The known-good list in refusal messages is ordered by version, not as a string (which put
+  6.1.10 before 6.1.2).
+
 ## [1.2.4] - 2026-10-30
 
 ### Documentation

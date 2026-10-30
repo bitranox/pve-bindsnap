@@ -69,7 +69,8 @@ engages for (bind/device mounts versus plain volumes), the status messages, and 
 carry/exclude decision, summary, warning and override wiring.
 
 On the node: it has been installed and exercised on a test node (Proxmox VE 9.2,
-pve-container 6.1.10, and PVE 9.2.6 with pve-container 6.1.12) across the full
+pve-container 6.1.10, and PVE 9.2.6 with pve-container 6.1.12), and in 1.3.0 on 15 nested
+E2E nodes, one per guard state from pve-container 6.0.18 to 6.1.16 on PVE 9.1 and 9.2, across the full
 [test plan](docs/testing.md): stopped create, rollback
 (verified at the file level) and delete, the running-container `BINDSNAP-FORCE-RUNNING` path, the `BINDSNAP-UNSUPPORTED`
 refusal, the `BINDSNAP-EXCLUDE` cases, and the task-log summaries. Clone was verified the same
@@ -104,8 +105,9 @@ bind/device data isn't versioned) and point at the plain `zfs snapshot` alternat
 ## What this isn't
 
 It isn't a Proxmox product, and Proxmox hasn't reviewed or endorsed it. It's release
-1.2.0, run in production on the author's own cluster, though not widely deployed and only on
-pve-container 6.1.10 and 6.1.12 so far, not other versions. And it isn't a way to avoid understanding your
+1.3.0, run in production on the author's own cluster on pve-container 6.1.10 and 6.1.12, though
+not widely deployed; the other vetted builds (6.0.18 to 6.1.16) were exercised on nested test
+nodes only, not in production. And it isn't a way to avoid understanding your
 own hypervisor: if you install it, read the [design notes](docs/design.md) and the module so you
 know which method it wraps and why. Though the risk is low, as already described in the README.
 

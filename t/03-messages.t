@@ -58,6 +58,17 @@ unlike($blocked, qr/TEST mode/,                     'known-bad line is NOT TEST 
 my $kgl = PVE::LXC::BindSnap->can('_known_good_list') or BAIL_OUT('_known_good_list missing');
 like($kgl->(), qr/pve-container 6\.1\.10/, 'lists the supported version');
 like($kgl->(), qr/1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106/, 'lists its checksum');
+like($kgl->(), qr/pve-container 6\.0\.18  5a7740a4a2c7e1e977740e3ce28811c23fd0f9c657bf15abf6a372c587fcfbcf/,
+     'lists the oldest vetted build');
+like($kgl->(), qr/pve-container 6\.1\.15, 6\.1\.16  3c7e8deb78600666b7462529721d00054b7a41b3b506c798c21a17351ff48998/,
+     'one line names every build sharing a checksum');
+{
+    # Ordered by version, not by string: a string sort puts 6.1.10 before 6.1.2.
+    my @first = map { /^\s+pve-container (\d+)\.(\d+)\.(\d+)/ ? [$1, $2, $3] : () } split /\n/, $kgl->();
+    my @sorted = sort { $a->[0] <=> $b->[0] || $a->[1] <=> $b->[1] || $a->[2] <=> $b->[2] } @first;
+    is_deeply(\@first, \@sorted, 'known-good list is in version order');
+    cmp_ok(scalar @first, '>=', 11, 'every vetted snapshot checksum is listed');
+}
 
 # --- refusal messages (pure, so unit-testable). They are the FULL multi-line explanation
 #     printed to the task log (which preserves newlines); snapshot_create dies with a

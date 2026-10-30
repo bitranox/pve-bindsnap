@@ -5,8 +5,9 @@ entries pointing at host paths). Proxmox greys snapshots out and refuses the clo
 overlay enables both again, delegating to Proxmox's genuine snapshot and clone code
 rather than forking it.
 
-> Release 1.2.0. It passes the unit tests and has been exercised on Proxmox VE 9.2 / 9.3
-> (pve-container 6.1.10 and 6.1.12) across the full install lifecycle and matrix: create /
+> Release 1.3.0. It passes the unit tests and has been exercised on Proxmox VE 9.1 and 9.2
+> (pve-container 6.0.18 to 6.1.16, see [compatible versions](docs/compatible-versions.md))
+> across the full install lifecycle and matrix: create /
 > rollback / delete (including a data-level rollback), the `BINDSNAP-FORCE-RUNNING`,
 > `BINDSNAP-UNSUPPORTED` and `BINDSNAP-EXCLUDE` paths, each both per-snapshot and as a
 > standing CT-Notes directive, plus the known-bad hard block, and it runs in the author's own

@@ -6,7 +6,7 @@ the latest run; the test plan that produces it is in [testing.md](testing.md).
 ## Off the node
 
 `perl -c` clean (both `BindSnap.pm` and `API2/LXC.wrapper.pm`), `prove -I lib t/` =
-**221 tests pass**, `shellcheck` and `shfmt` clean.
+**225 tests pass**, `shellcheck` and `shfmt` clean.
 The unit tests cover the pure logic: the checksum combine (it reproduces both the
 documented `sha256sum` pipeline and the real value from a node), the `BINDSNAP-FORCE-RUNNING`/
 `BINDSNAP-UNSUPPORTED` matching (case-sensitive, underscore-glue tolerant, read from the
@@ -181,6 +181,59 @@ keyword anywhere except where one is by design:
 
 The test CT and both clones were destroyed afterward, with no leftover datasets, zfs
 snapshots, dump files or bind directories.
+
+## pve-container 6.0.18 to 6.1.16 (1.3.0)
+
+Validation run that added every guard state from pve-container 6.0.18 to 6.1.16 to both
+known-good tables. Each state got its own nested Proxmox VE node holding stock PVE with exactly
+that pve-container and its libpve-guest-common-perl (15 nodes: 9 on PVE 9.1.1, 6 on PVE 9.2), a
+stopped unprivileged CT with one bind mount (`mp0` -> a host dir), and no pve-bindsnap installed.
+Every run started and ended with a rollback of the node to that clean state.
+
+**Source review first.** The extracted packages of every build were diffed against 6.1.10:
+
+- Snapshot surface (`has_feature`, `__snapshot_*`, `snapshot_create`/`delete`/`rollback`,
+  `foreach_volume_full`): unchanged on every build, except that guest-common 6.0.2 lacks two
+  `print` lines (`freeze guest filesystem` / `thaw guest filesystem`) in `snapshot_create`.
+- `clone_vm`: byte-identical to the copied 6.1.10 body from 6.1.7 to 6.1.16. On 6.0.18 to 6.1.6
+  it differs in the error text for a full clone of a running CT, one `creating a clone ...` log
+  line, and the SDN IPAM owner id passed to `create_ifaces_ipams_ips` (the source id there, the
+  new CT id from 6.1.7). Every function the copied body calls has the same signature on those
+  builds, so they were vetted with the 6.1.10 behaviour; see
+  [compatible versions](compatible-versions.md).
+
+**Per node**, scripted (`pct`, `zfs`, `pvesh` task status), first against the release module,
+in which the build read as untested, then against a module with the node's own checksums added:
+
+| phase                 | cases                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+|-----------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| stock (not installed) | bind clone dies `unable to clone mountpoint`; bind snapshot refused                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| untested build        | banners `TEST mode` and `clone overlay loaded but NOT active`; snapshot refused without a keyword; `BINDSNAP-UNSUPPORTED` proceeds as `TASK WARNINGS`; delete; clone stays stock                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| validated build       | both banners `checksum-validated`; with a managed `mp1` added: stopped snapshot `TASK OK` capturing rootfs + mp1; data-level rollback (rootfs and mp1 back to `v1`, the bind file keeps `v2`); delete leaves no zfs snapshot; running CT refused without a keyword, allowed with `BINDSNAP-FORCE-RUNNING` and with the standing Notes directive; `vzdump --mode snapshot`; `BINDSNAP-EXCLUDE: mp1` keeps mp1 out and the empty override puts it back; delete honours the frozen directive; clone gets a new rootfs and mp1, carries `mp0` with the yellow carry warning; `BINDSNAP-EXCLUDE: mp0` drops mp0 from the clone |
+| known-bad             | the node's checksum on the deny-list: refused, and `BINDSNAP-UNSUPPORTED` cannot override it; no zfs snapshot left                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| uninstall             | diverts gone, `dpkg --verify` silent, stock refusal again                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+
+All 15 nodes passed every case (29 to 33 per node; the three builds already in the tables skip
+the untested phase). The release module was then run once more on all 15 nodes: both banners
+read `checksum-validated` on each, and every case passed again.
+
+| pve-container | guest-common | PVE    | snapshot checksum     | clone checksum        |
+|---------------|--------------|--------|-----------------------|-----------------------|
+| 6.0.18        | 6.0.2        | 9.1.1  | `5a7740a4...87fcfbcf` | `97d08a12...e35c8fd8` |
+| 6.0.19        | 6.0.2        | 9.1.1  | `167a8689...63093b37` | `53656e15...a121911e` |
+| 6.1.1         | 6.0.2        | 9.1.1  | `9573ba8f...32f865c2` | `53656e15...a121911e` |
+| 6.1.2         | 6.0.2        | 9.1.1  | `482996dd...06a40eef` | `53656e15...a121911e` |
+| 6.1.3         | 6.0.2        | 9.1.1  | `482996dd...06a40eef` | `d483d5ce...5ad14f6b` |
+| 6.1.5         | 6.0.2        | 9.1.1  | `482996dd...06a40eef` | `b63d3fdd...8bbb1372` |
+| 6.1.6         | 6.0.2        | 9.1.1  | `77e70a38...94bbccd9` | `b63d3fdd...8bbb1372` |
+| 6.1.7         | 6.0.3        | 9.1.1  | `e963f8e4...53bb0365` | `8408885e...cf525198` |
+| 6.1.9         | 6.0.3        | 9.1.1  | `9edba4fe...78a1e9dd` | `8408885e...cf525198` |
+| 6.1.10        | 6.0.3        | 9.2.2  | `1ebb1a44...9faa6106` | `8408885e...cf525198` |
+| 6.1.11        | 6.0.4        | 9.2.2  | `29dc5ce7...1bce914f` | `8408885e...cf525198` |
+| 6.1.13        | 6.0.5        | 9.2.7  | `29dc5ce7...1bce914f` | `1ace1c4d...f7e7afc7` |
+| 6.1.14        | 6.0.5        | 9.2.7  | `04aada64...9e225a77` | `2ea44bdd...a43b635a` |
+| 6.1.15        | 6.0.5        | 9.2.24 | `3c7e8deb...1ff48998` | `892c3fcd...5d8400dd` |
+| 6.1.16        | 6.0.5        | 9.2.25 | `3c7e8deb...1ff48998` | `ed915d4f...5caf1947` |
 
 ## Aftermath
 

@@ -14,7 +14,7 @@ use strict;
 use warnings;
 
 # =====================================================================
-# pve-bindsnap                                       (1.2.0)
+# pve-bindsnap                                       (1.3.0)
 # ---------------------------------------------------------------------
 # Lets Proxmox snapshot LXC containers that carry bind-/device-mount
 # entries (mpN pointing at host paths), by hiding every non-'volume'
@@ -80,7 +80,7 @@ use warnings;
 # alternative.
 # =====================================================================
 
-our $VERSION = '1.2.0';
+our $VERSION = '1.3.0';
 
 # Upstream files whose byte-content defines the snapshot surface we wrap.
 # foreach_volume_full + snapshot_create/delete/rollback are INHERITED from
@@ -93,8 +93,10 @@ my @GUARDED_FILES = (
 );
 
 # Known-good table. KEY = combined sha256 of @GUARDED_FILES (see _config_checksum);
-# VALUE = the pve-container version that checksum corresponds to. We save BOTH, but
-# ONLY THE CHECKSUM (the key) decides activation; the version is a human label only.
+# VALUE = the pve-container version(s) that checksum corresponds to: several builds can
+# share one checksum when the guarded files did not change between them, so the label lists
+# each vetted build. We save BOTH, but ONLY THE CHECKSUM (the key) decides activation; the
+# version is a human label only.
 # Recompute the manual way (must equal what the overlay logs):
 #   printf '%s\n' \
 #     "$(sha256sum /usr/share/perl5/PVE/LXC/Config.pm     | awk '{print $1}')" \
@@ -102,8 +104,17 @@ my @GUARDED_FILES = (
 #   | sha256sum | awk '{print $1}'
 # To add a new release: test it (see README), then paste its combined sha256 here.
 my %KNOWN_GOOD_CHECKSUMS = (
+    '5a7740a4a2c7e1e977740e3ce28811c23fd0f9c657bf15abf6a372c587fcfbcf' => '6.0.18',
+    '167a8689ef8a3a650c398f4870f916ee724b32bc028549bee780803c63093b37' => '6.0.19',
+    '9573ba8f9b60dcf6394788a05f06b66a4039b3b6944240188e87895432f865c2' => '6.1.1',
+    '482996dd8c502b390dba6ba3205addf908bf27c9786af749c30c20e806a40eef' => '6.1.2, 6.1.3, 6.1.5',
+    '77e70a3803013ba37a1f7b2a5ba6960121968e1a7a4c1df5c6be45ba94bbccd9' => '6.1.6',
+    'e963f8e465ca4314691a5695316878b36ba3284242f98abe6b48f54953bb0365' => '6.1.7',
+    '9edba4fe051f05bb8b2b3634e0aeb707649b8a8a987e88e443cbf58178a1e9dd' => '6.1.9',
     '1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106' => '6.1.10',
-    '29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f' => '6.1.12',
+    '29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f' => '6.1.11, 6.1.12, 6.1.13',
+    '04aada64089cbf97d1598ea0b102aa61d38bfd456526be4fff5ce4289e225a77' => '6.1.14',
+    '3c7e8deb78600666b7462529721d00054b7a41b3b506c798c21a17351ff48998' => '6.1.15, 6.1.16',
 );
 
 # Known-BAD table. KEY = combined sha256 (same as above); VALUE = a short reason. A
@@ -134,9 +145,21 @@ my @CLONE_GUARDED_FILES = (
 # Known-good / known-bad tables for the CLONE override, same semantics as the snapshot
 # tables: KEY = combined sha256 of @CLONE_GUARDED_FILES, VALUE = pve-container version
 # (good) or a reason (bad). Only the checksum decides; the version is a human label.
+# Builds before 6.1.7 are vetted although their own clone_vm differs from the copied 6.1.10
+# body: the differences are an error text, one log line, and the SDN-IPAM owner id
+# (create_ifaces_ipams_ips gets the NEW CT id, as upstream does from 6.1.7 on), and every
+# function the copy calls has the same signature there. So on those builds a clone behaves
+# like 6.1.7+; docs/compatible-versions.md states it.
 my %KNOWN_GOOD_CLONE_CHECKSUMS = (
-    '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198' => '6.1.10',
-    '1ace1c4de506b79bf165f2c5aeaa8d8c4af35b6a9d91ce1ea24e5742f7e7afc7' => '6.1.12',
+    '97d08a12e39ec4a561c639624e40c447e726f05bdfc46778292c30a9e35c8fd8' => '6.0.18',
+    '53656e15e33c7ffc09b5c060a203fd007a51375d7878dfe88a866b1fa121911e' => '6.0.19, 6.1.1, 6.1.2',
+    'd483d5ce01afcd0634fba57c3fcbb9d2396e5447806b950d5ea450285ad14f6b' => '6.1.3',
+    'b63d3fdda3cb82f35e3f221f85b47b4943eb907b959f3398fdfad1b58bbb1372' => '6.1.5, 6.1.6',
+    '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198' => '6.1.7, 6.1.9, 6.1.10, 6.1.11',
+    '1ace1c4de506b79bf165f2c5aeaa8d8c4af35b6a9d91ce1ea24e5742f7e7afc7' => '6.1.12, 6.1.13',
+    '2ea44bdd7dd321e593b0ede65d0a8b01126fff733bb0591da84a4656a43b635a' => '6.1.14',
+    '892c3fcda6e70abbae33ee93c01393f0f36f9899b3e74954825943525d8400dd' => '6.1.15',
+    'ed915d4f9d205a460379a0f0746434eba6cbaf331759eeb76202e47a5caf1947' => '6.1.16',
 );
 
 my %KNOWN_BAD_CLONE_CHECKSUMS = (
@@ -491,10 +514,17 @@ sub _log_op_summary {
 
 # Indented "pve-container <ver>  <checksum>" lines for every known-good build, for the
 # multi-line refusal explanations (printed to the task log, which preserves newlines).
+# Ordered by the label's first version numerically: a string sort puts 6.1.10 before 6.1.2.
 # Pure, unit-testable.
+sub _version_key {
+    my ($label) = @_;
+    return sprintf('%05d' x 3, ($label =~ /(\d+)\.(\d+)\.(\d+)/) ? ($1, $2, $3) : (0, 0, 0));
+}
+
 sub _known_good_list {
     my @l = map { "    pve-container $KNOWN_GOOD_CHECKSUMS{$_}  $_" }
-        sort { $KNOWN_GOOD_CHECKSUMS{$a} cmp $KNOWN_GOOD_CHECKSUMS{$b} } keys %KNOWN_GOOD_CHECKSUMS;
+        sort { _version_key($KNOWN_GOOD_CHECKSUMS{$a}) cmp _version_key($KNOWN_GOOD_CHECKSUMS{$b}) }
+        keys %KNOWN_GOOD_CHECKSUMS;
     return @l ? join("\n", @l) : "    (none recorded)";
 }
 
