@@ -124,7 +124,8 @@ combined hash. To get that version supported:
 `Config.pm` `5d661402...e9ffdb2c`, `AbstractConfig.pm` `70432cce...61871494`, from
 libpve-guest-common-perl 6.0.5). Every node in a cluster on the same package versions
 shares those exact bytes, so one entry covers the whole cluster at that version. Since
-1.3.0 the tables hold every guard state from pve-container 6.0.18 to 6.1.16; the full list is
+1.3.0 the tables hold each pve-container build from 6.0.18 to 6.1.16 with the
+libpve-guest-common-perl version it shipped with; the full list, with that pairing per row, is
 [compatible versions](compatible-versions.md).
 
 `AbstractConfig.pm` ships in `libpve-guest-common-perl`, not in `pve-container`, so the

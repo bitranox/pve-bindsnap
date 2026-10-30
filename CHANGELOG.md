@@ -23,8 +23,10 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 ### Added
 
 - Every guard state from pve-container **6.0.18 to 6.1.16** joins both known-good tables (11
-  snapshot and 9 clone checksums, up from 2 each), covering Proxmox VE 9.1 and 9.2. Each state
-  ran the full [test plan](docs/testing.md) on its own nested PVE node: 15 nodes, every case
+  snapshot and 9 clone checksums, up from 2 each), covering Proxmox VE 9.1 and 9.2. A guard
+  state is a pve-container build with the libpve-guest-common-perl version it shipped with; the
+  same build beside another guest-common version can hash differently and is then untested.
+  Each state ran the full [test plan](docs/testing.md) on its own nested PVE node: 15 nodes, every case
   passing, see [test results](docs/test-results.md). A source diff against 6.1.10 came first:
   the snapshot surface differs only by two freeze/thaw log lines (guest-common 6.0.2), and the
   copied `clone_vm` is byte-identical from 6.1.7 on.
