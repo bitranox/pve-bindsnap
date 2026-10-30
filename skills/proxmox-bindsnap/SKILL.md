@@ -1,6 +1,6 @@
 ---
 name: infra-proxmox-bindsnap
-description: Use when snapshotting or cloning Proxmox LXC containers that have bind/device mounts (mpN -> host paths) - the snapshot button is greyed out or pct snapshot refuses the container, or pct clone fails with "unable to clone mountpoint 'mpN' (type bind)", or you cannot snapshot a bind-mount container. Covers pve-bindsnap install, verify, the BINDSNAP-FORCE-RUNNING / BINDSNAP-UNSUPPORTED / BINDSNAP-EXCLUDE markers, the checksum guard for an untested pve-container build, clone, and uninstall on a Proxmox VE node.
+description: Use when snapshotting or cloning Proxmox LXC containers that have bind/device mounts (mpN -> host paths) - the snapshot button is greyed out or pct snapshot refuses the container with "snapshot feature is not available", or pct clone fails with "unable to clone mountpoint 'mpN' (type bind)", or you cannot snapshot a bind-mount container. Covers pve-bindsnap install, verify, the BINDSNAP-FORCE-RUNNING / BINDSNAP-UNSUPPORTED / BINDSNAP-EXCLUDE markers, the checksum guard for an untested pve-container build, clone, and uninstall on a Proxmox VE node.
 ---
 
 # proxmox-bindsnap
@@ -17,7 +17,9 @@ each command with `ssh root@<node>`. All `pct`/`journalctl`/`perl` commands belo
 
 ## When to use
 
-- A container with a bind mount can't be snapshotted (the GUI button is greyed out).
+- A container with a bind mount can't be snapshotted: the GUI button is greyed out, or
+  `pct snapshot` fails with `snapshot feature is not available` (exit 255), running or stopped,
+  and creates nothing.
 - `pct clone` / GUI Clone fails: `unable to clone mountpoint 'mpN' (type bind)`.
 - You need scheduled snapshots of bind-mount CTs (e.g. cv4pve-autosnap).
 - You want to clone a bind-mount CT and control whether the copy inherits the bind mounts.
@@ -169,6 +171,7 @@ snapshots and in the CT config (`zfs list -t snapshot | grep subvol-<vmid>`).
 | Symptom                                                        | Cause / fix                                                                                                                            |
 |----------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
 | Snapshot button greyed for a bind-mount CT                     | Not installed, or daemons not restarted. Install (section 1), verify (section 2).                                                      |
+| `pct snapshot`: `snapshot feature is not available`            | CLI form of the greyed button: not installed, or daemons not restarted. Install (section 1), verify (section 2).                       |
 | `unable to clone mountpoint 'mpN' (type bind)`                 | Clone override not active: not installed, OR build untested (clone stays stock). Install / get the build vetted (section 5).           |
 | `CT <vmid> is running ... stop ... or BINDSNAP-FORCE-RUNNING`  | Stop the CT, or add `BINDSNAP-FORCE-RUNNING` (section 4).                                                                              |
 | `pve-container <ver> is ... untested ... BINDSNAP-UNSUPPORTED` | Build not in the table. Opt in to TEST and get it vetted (section 5).                                                                  |
