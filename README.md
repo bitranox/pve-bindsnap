@@ -5,7 +5,7 @@ entries pointing at host paths). Proxmox greys snapshots out and refuses the clo
 overlay enables both again, delegating to Proxmox's genuine snapshot and clone code
 rather than forking it.
 
-> Release 1.3.0. It passes the unit tests and has been exercised on Proxmox VE 9.1 and 9.2
+> Release 1.4.0. It passes the unit tests and has been exercised on Proxmox VE 9.1 and 9.2
 > (pve-container 6.0.18 to 6.1.16, see [compatible versions](docs/compatible-versions.md))
 > across the full install lifecycle and matrix: create /
 > rollback / delete (including a data-level rollback), the `BINDSNAP-FORCE-RUNNING`,
@@ -14,13 +14,13 @@ rather than forking it.
 > production cluster.
 > `pct clone` of a bind-mount container is covered too (the binds are carried to the clone,
 > `BINDSNAP-EXCLUDE` drops them), gated by its own checksum so an untested build falls back
-> to stock. It hasn't been run against pve-container versions other than those two,
-> so on a build it doesn't recognise it refuses by default until you opt in. It's a small,
+> to stock. On a pve-container build it doesn't recognise it refuses by default until you
+> opt in. It's a small,
 > commented overlay: read the source and the [test plan](docs/testing.md) before you deploy.
 >
 > The risks are low: the wrapper loads the overlay eval-guarded (a bug in it just falls
-> back to stock), the installer pre-flights and rolls back on failure, `uninstall.sh`
-> restores stock cleanly, and containers without bind/device mounts are never touched. So
+> back to stock), every install path pre-flights the load before the daemons pick it up,
+> removing it restores stock cleanly, and containers without bind/device mounts are never touched. So
 > please try it on other Proxmox / pve-container versions and report back on the
 > [issues page](https://github.com/bitranox/pve-bindsnap/issues), whether it
 > worked or **not**, with the version and combined checksum the overlay prints, so the
@@ -75,8 +75,23 @@ trade-offs are in [the design notes](docs/design.md).
 
 ## Install
 
-One line, on one node. It patches a running hypervisor as root; the source is right
+Two ways, on each node; both patch a running hypervisor as root, and the source is right
 there on [GitHub](https://github.com/bitranox/pve-bindsnap) if you want to read it first.
+
+**As a Debian package (recommended).** pve-bindsnap is then updated together with Proxmox:
+the GUI's Node -> Updates -> Upgrade, or `apt-get upgrade`, picks up a new release.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install-apt.sh | bash
+```
+
+`install-apt.sh` adds the signed pve-bindsnap apt repository (its key is trusted for that
+repository only) and installs the `pve-bindsnap` package. Remove everything again with
+`install-apt.sh --remove --purge`. A node installed with `install.sh` is taken over as it
+stands. Details, the key fingerprint and installing the `.deb` by hand:
+[install with apt](docs/install-apt.md).
+
+**With the script.** One line, no apt repository; you update by running it again.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install.sh | bash
@@ -89,12 +104,14 @@ git clone https://github.com/bitranox/pve-bindsnap
 cd pve-bindsnap && less install.sh && ./install.sh
 ```
 
-Either way, `install.sh` installs the overlay module, diverts `PVE::LXC::Config` (for
-snapshots) and `PVE::API2::LXC` (for clone) and puts a thin wrapper in place of each (the
-genuine upstream is preserved alongside it), verifies both load, then restarts the PVE
-daemons and prints the activation line. If any verification fails it rolls back both and
-leaves the node untouched. Re-running it is safe (idempotent). Removing it is the same one
-line with `uninstall.sh`:
+The script and the package do the same thing: install the overlay module and its clone
+variants, divert `PVE::LXC::Config` (for
+snapshots) and `PVE::API2::LXC` (for clone) and put a thin wrapper in place of each (the
+genuine upstream is preserved alongside it), verify both load, then restart the PVE daemons
+and print the activation line. If the script's verification fails it rolls back and leaves
+the node untouched; if the package's does, the daemons are not reloaded and Proxmox keeps
+its stock behaviour. Re-running either is safe (idempotent). The script is removed with
+`uninstall.sh`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/uninstall.sh | bash
@@ -266,10 +283,12 @@ running bind-mount CT first and then clone from that snapshot; the overlay cover
 too.
 
 Clone support has its **own** checksum guard, separate from the snapshot one, because it
-installs a copy of Proxmox's clone routine with the one bind-mount change. On a
-pve-container build that copy hasn't been vetted against, the clone override simply isn't
-installed and `pct clone` keeps stock behaviour (bind mounts refused), so there is never a
-regression and never a stale copy run against a changed Proxmox. The [compatible
+installs Proxmox's own clone routine, as shipped in your exact pve-container build, with the
+bind-mount change applied. pve-bindsnap carries one such variant per distinct upstream
+version of that routine and picks the one whose upstream text is your build's. On a
+pve-container build it doesn't know, the clone override simply isn't installed and
+`pct clone` keeps stock behaviour (bind mounts refused), so there is never a regression and
+never a variant run against a Proxmox it wasn't taken from. The [compatible
 versions](docs/compatible-versions.md) page lists the clone-tested builds alongside the
 snapshot ones.
 
@@ -294,10 +313,11 @@ verify, configure and operate pve-bindsnap on a Proxmox node for you. Two ways t
 The same skill is also published in the
 [bitranox-skills](https://github.com/bitranox/bitranox-skills) marketplace
 (`/bitranox:proxmox-bindsnap`). The skill is a self-contained runbook; it drives the same
-`install.sh` / `uninstall.sh` and `BINDSNAP-` markers documented here.
+`install-apt.sh`, `install.sh` / `uninstall.sh` and `BINDSNAP-` markers documented here.
 
 ## More
 
+- [Install with apt](docs/install-apt.md), the Debian package and its repository
 - [How it works, and what it deliberately doesn't do](docs/design.md)
 - [BINDSNAP-EXCLUDE](docs/bindsnap-exclude.md), leaving a managed volume out of a snapshot
 - [Compatible versions](docs/compatible-versions.md), supported, hard-blocked, untested

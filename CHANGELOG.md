@@ -18,6 +18,27 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.4.0] - unreleased
+
+### Added
+
+- A Debian package, `pve-bindsnap`, and `install-apt.sh`, which adds its signed apt repository
+  (key trusted for that repository only) and installs it. Installed that way pve-bindsnap is
+  updated with Proxmox through the GUI or `apt-get upgrade`, and a dpkg trigger reports the new
+  guard state after a `pve-container` upgrade. `install.sh` stays; the package takes over a node
+  installed with it, and `install.sh` / `uninstall.sh` refuse while the package is installed. See
+  [install with apt](docs/install-apt.md).
+- `tools/build-deb.sh` (reproducible build) and `tools/build-apt-repo.sh` (flat signed repository).
+
+### Changed
+
+- Clone runs each build's own upstream `clone_vm`. 1.3.0 installed one copy, taken from 6.1.10,
+  on every build, so 6.0.18 to 6.1.6 ran 6.1.10's method (a different error text, one extra
+  task-log line, and the SDN IPAM call keyed on the new CT id). pve-bindsnap now ships one
+  variant per distinct upstream `clone_vm` (four in 6.0.17 to 6.1.16), each verbatim outside
+  its marked hunks and checked byte for byte by the tests, and the clone checksum picks the
+  variant. `tools/gen-clone-variants.pl` makes them from the pve-container packages.
+
 ## [1.3.0] - 2026-10-30
 
 ### Added

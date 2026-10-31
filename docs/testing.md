@@ -117,11 +117,15 @@ No Proxmox required:
 perl -c lib/PVE/LXC/BindSnap.pm          # syntax (overlay)
 perl -c lib/PVE/API2/LXC.wrapper.pm      # syntax (clone wrapper)
 prove -I lib t/                          # unit tests
-shellcheck install.sh uninstall.sh       # scripts
-shfmt -i 4 -d install.sh uninstall.sh    # script formatting
+perl tools/gen-clone-variants.pl --check # clone variants match their fixtures
+scripts="install.sh uninstall.sh install-apt.sh tools/*.sh debian/preinst debian/postinst debian/postrm"
+shellcheck $scripts                      # scripts
+shfmt -i 4 -d $scripts                   # script formatting
+tools/build-deb.sh                       # builds dist/pve-bindsnap_<version>_all.deb
 ```
 
-CI runs the same four checks on every push (`.github/workflows/ci.yml`).
+CI runs these on every push (`.github/workflows/ci.yml`), and also inspects the built package's
+contents, file modes and maintainer scripts and checks that a second build is byte-identical.
 
 The latest verification run (off-node and on a test node) is recorded in
 [test-results.md](test-results.md).

@@ -53,7 +53,8 @@ recognised by the checksum guard or not. Only bind-mount containers are gated (s
 A few more decisions are worth spelling out, because they're what keep this from
 being reckless:
 
-It loads by diverting `PVE::LXC::Config`. `install.sh` runs `dpkg-divert` to rename
+It loads by diverting `PVE::LXC::Config`. `install.sh` (or the package's preinst) runs
+`dpkg-divert` to rename
 the genuine `/usr/share/perl5/PVE/LXC/Config.pm` to `Config.pm.distrib`, and installs
 a thin wrapper at the original path. The wrapper `require`s `.distrib` (the genuine
 upstream) and then the overlay. The Proxmox daemons and `pct` run `perl -T` (taint
@@ -112,14 +113,20 @@ wrapper that `require`s the genuine `.distrib` (which registers the stock `clone
 then calls the overlay's `apply_clone`, all under the same `perl -T` reasoning as the
 `Config` divert.
 
-One thing the clone override does that the snapshot overlay does not: it installs a *copy*
-of upstream's `clone_vm` body (with the one change), rather than wrapping live coderefs.
-That is unavoidable, because the die sits inline in a closure with no seam to wrap. It also
-makes the override version-fragile, so it has its **own** checksum guard, separate from the
-snapshot guard and hashing only `PVE/API2/LXC.pm` (the file the copy comes from). On a build
-whose `clone_vm` the copy hasn't been vetted against, the override is simply not installed:
-`clone_vm` stays stock (bind clones refused, the original behaviour), so there is never a
-regression and never a stale copy dispatched against a changed Proxmox. A `pve-container`
+One thing the clone override does that the snapshot overlay does not: it installs its own
+`clone_vm` body rather than wrapping live coderefs. That is unavoidable, because the die
+sits inline in a closure with no seam to wrap. The body it installs is the build's OWN
+upstream method: `lib/PVE/LXC/BindSnap/Clone/` holds one variant per distinct upstream
+version of `clone_vm`, each the upstream `register_method` text verbatim except for fenced
+`BINDSNAP` hunks (every replaced upstream line is kept in its fence as `#| <line>`), compiled
+in `package PVE::API2::LXC` so every name upstream imports resolves exactly as there.
+`tools/gen-clone-variants.pl` makes them from the pve-container packages, and the tests
+check each against the upstream slice byte for byte. The clone override still has its **own**
+checksum guard, separate from the snapshot guard and hashing only `PVE/API2/LXC.pm`; a
+known-good hash names the variant taken from that build. On a build it doesn't know, the
+override is simply not installed: `clone_vm` stays stock (bind clones refused, the original
+behaviour), so there is never a regression and never a variant dispatched against a Proxmox
+it wasn't taken from. A `pve-container`
 upgrade reroutes to the `.distrib`, the next daemon start re-hashes it, and an unrecognised
 hash disables the override automatically. See [the checksum guard](checksum-guard.md).
 
@@ -158,10 +165,15 @@ snapshot.
 ## Repo layout
 
 ```
-lib/PVE/LXC/BindSnap.pm          the overlay module (installed to /usr/local/lib/site_perl)
+lib/PVE/LXC/BindSnap.pm          the overlay module (script: /usr/local/lib/site_perl, package: /usr/share/perl5)
+lib/PVE/LXC/BindSnap/Clone/      the per-build clone_vm variants (generated)
 lib/PVE/LXC/Config.wrapper.pm    snapshot wrapper (installed as /usr/share/perl5/PVE/LXC/Config.pm)
 lib/PVE/API2/LXC.wrapper.pm      clone wrapper (installed as /usr/share/perl5/PVE/API2/LXC.pm)
-install.sh / uninstall.sh        helpers (read them first)
-t/                               unit tests (no Proxmox needed)
+install.sh / uninstall.sh        script install and removal (read them first)
+install-apt.sh                   adds the apt repository and installs the package
+debian/                          package control file and maintainer scripts
+apt/                             the apt archive public key
+tools/                           gen-clone-variants.pl, build-deb.sh, build-apt-repo.sh
+t/                               unit tests (no Proxmox needed); t/fixtures/clone_vm the upstream slices
 docs/                            this and the other guides
 ```

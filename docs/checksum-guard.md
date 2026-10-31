@@ -60,22 +60,32 @@ and link that page, so the operator can see what to update to.
 Clone support has a **second, independent** guard, because it works differently from the
 snapshot overlay. The snapshot overlay wraps live upstream coderefs, so it stays correct
 across versions and only gates whether bind-mount snapshots are *allowed*. The clone
-override instead installs a *copy* of Proxmox's `clone_vm` body (the die it has to change
-sits inline in a closure with no seam to wrap), so running it against a changed Proxmox
-would mean running stale code. To prevent that, the clone override is **install-gated**: it
-is only put in place when the checksum matches.
+override instead installs its own `clone_vm` body (the die it has to change sits inline in a
+closure with no seam to wrap). That body is the build's own upstream method with the
+bind-mount hunks applied, and upstream changed `clone_vm` between builds, so pve-bindsnap
+ships one **variant** per distinct upstream text (`lib/PVE/LXC/BindSnap/Clone/v6_0_17.pm` and
+so on). Running a variant against a build it was not taken from would mean running another
+build's code, so the clone override is **install-gated**: it is only put in place when the
+checksum matches, and the matching entry names the variant to load.
 
-It hashes a single file, `/usr/share/perl5/PVE/API2/LXC.pm`, the one the copy comes from
+It hashes a single file, `/usr/share/perl5/PVE/API2/LXC.pm`, the one the variants come from
 (its `clone_vm` is the entire coupling surface; the helpers it calls are stable named
-interfaces). The same two-table shape applies, with clone-specific tables:
+interfaces). The table maps each hash to a label and a variant:
 
 ```perl
 my %KNOWN_GOOD_CLONE_CHECKSUMS = (
-    '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198' => '6.1.10',
+    '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198'
+        => { label => '6.1.7, 6.1.9, 6.1.10, 6.1.11', variant => 'v6_1_7' },
 );
 ```
 
-Reproduce it the same way (use `LXC.pm.distrib` if the overlay is installed):
+Several builds can share one hash (their `LXC.pm` is byte-identical), and several hashes can
+share one variant (`LXC.pm` changed elsewhere while `clone_vm` did not).
+`t/fixtures/clone_vm/builds.tsv` records, per build, its `LXC.pm` hash, clone checksum, the
+hash of its upstream `clone_vm` slice and its variant; the tests check that every table entry
+loads the variant its own build's slice belongs to.
+
+Reproduce the checksum the same way (use `LXC.pm.distrib` if the overlay is installed):
 
 ```bash
 api=/usr/share/perl5/PVE/API2/LXC.pm
@@ -86,12 +96,25 @@ sha256sum "$api" | awk '{print $1}' | sha256sum | awk '{print $1}'
 On a build that isn't in the clone known-good table, the override is **not installed** at
 all: `pct clone` keeps stock Proxmox behaviour, so a bind-mount container is refused exactly
 as it is without the overlay. There is no `BINDSNAP-UNSUPPORTED`-style override for clone,
-on purpose: the safe fallback is stock, never a stale copy. After a `pve-container` upgrade,
-the new `clone_vm` lands at the diverted `.distrib`, the next daemon start re-hashes it, the
-unrecognised hash disables the override, and clone reverts to stock until the new build is
-vetted and its hash added. To get a new build clone-supported, vet it (clone a bind-mount CT
-per the [test plan](testing.md)) and report the version and this clone hash so the
-`hash => version` line can be added.
+on purpose: the safe fallback is stock, never a variant taken from another build. After a
+`pve-container` upgrade, the new `clone_vm` lands at the diverted `.distrib`, the next daemon
+start re-hashes it, an unrecognised hash disables the override, and clone reverts to stock
+until the new build is vetted and its hash added. (Installed as a package, pve-bindsnap is
+told about the upgrade by a dpkg trigger and prints the new guard state in the apt log.)
+
+### Adding a clone build
+
+1. Put the new `pve-container_<ver>_all.deb` (or its extracted tree) into a directory with
+   the builds already listed in `builds.tsv`, and run
+   `perl tools/gen-clone-variants.pl --src <dir>`. It slices every build's `clone_vm`,
+   writes the fixture and `builds.tsv` rows, and makes a new variant only if the body is new.
+   Every hunk anchor must match exactly once, or it stops and names the anchor.
+2. Add the build's clone checksum (from `builds.tsv`) to `%KNOWN_GOOD_CLONE_CHECKSUMS` with
+   the variant `builds.tsv` names.
+3. Run `prove -I lib t/`, then vet it on a node: clone a bind-mount CT per the
+   [test plan](testing.md).
+
+To report a build for vetting, send the version and this clone hash.
 
 ## When a version isn't recognised
 

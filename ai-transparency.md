@@ -76,7 +76,7 @@ E2E nodes, one per guard state from pve-container 6.0.18 to 6.1.16 on PVE 9.1 an
 refusal, the `BINDSNAP-EXCLUDE` cases, and the task-log summaries. Clone was verified the same
 way: `pct clone` of a bind-mount container failing on stock first, then carrying the bind
 mounts (and dropping a `BINDSNAP-EXCLUDE`'d one) once the override is in, plus the version-change
-fallback (a perturbed upstream disables the override rather than running a stale copy). Beyond
+fallback (a perturbed upstream disables the override rather than running another build's code). Beyond
 that test node, it runs in the author's own production cluster on the same pve-container build.
 
 ## Checking it yourself
@@ -84,8 +84,9 @@ that test node, it runs in the author's own production cluster on the same pve-c
 The module is a single, heavily commented file. For snapshots the only clever part is the thin
 filter around `foreach_volume_full`; everything else hands off to the live Proxmox methods. The
 one exception is clone: because the bind-mount die sits inline in `clone_vm` with nothing to
-wrap, the overlay installs a copy of that one method with the single carry-or-exclude change.
-That copy is honest about being a copy -- it is gated by its own checksum of the file it came
+wrap, the overlay installs that build's own upstream method with the carry-or-exclude hunks
+applied: one generated variant per distinct upstream `clone_vm`, verbatim outside its fenced
+hunks, which the tests check byte for byte. It is gated by its own checksum of the file it came
 from, so on any build it hasn't been vetted against it simply isn't installed and `pct clone`
 stays stock. It is the one place the overlay doesn't delegate, and it is fenced off accordingly.
 
