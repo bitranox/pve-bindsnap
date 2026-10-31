@@ -25,6 +25,13 @@ jobs:
         run: |
           perl -c lib/PVE/LXC/BindSnap.pm
           perl -c lib/PVE/API2/LXC.wrapper.pm
+          for f in lib/PVE/LXC/BindSnap/Clone/*.pm; do perl -Ilib -c "$f"; done
+          perl -c tools/gen-clone-variants.pl
+
+      # The clone_vm variants must be exactly what the generator makes from the committed
+      # upstream fixtures (no upstream download needed).
+      - name: Clone variants match their fixtures
+        run: perl tools/gen-clone-variants.pl --check
 
       - name: Unit tests
         run: prove -I lib t/
@@ -39,11 +46,35 @@ jobs:
           head -1 skills/proxmox-bindsnap/SKILL.md | grep -qx -- '---'
 
       - name: Shellcheck
-        run: shellcheck install.sh uninstall.sh
+        run: shellcheck install.sh uninstall.sh install-apt.sh tools/build-deb.sh tools/build-apt-repo.sh debian/preinst debian/postinst debian/postrm
 
       # shfmt is not preinstalled on the runner; fetch a pinned release binary.
       - name: Shfmt
         run: |
           curl -fsSL https://github.com/mvdan/sh/releases/download/v3.10.0/shfmt_v3.10.0_linux_amd64 -o shfmt
           chmod +x shfmt
-          ./shfmt -i 4 -d install.sh uninstall.sh
+          ./shfmt -i 4 -d install.sh uninstall.sh install-apt.sh tools/build-deb.sh tools/build-apt-repo.sh debian/preinst debian/postinst debian/postrm
+
+      # Build the Debian package and check what it ships: the overlay, every clone
+      # variant, both wrappers at the diverted paths, and the maintainer scripts.
+      - name: Build and inspect the .deb
+        run: |
+          deb="$(tools/build-deb.sh)"
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb" | tee contents.txt
+          for f in PVE/LXC/BindSnap.pm PVE/LXC/Config.pm PVE/API2/LXC.pm; do
+            grep -q "\./usr/share/perl5/$f\$" contents.txt
+          done
+          for v in lib/PVE/LXC/BindSnap/Clone/*.pm; do
+            grep -q "\./usr/share/perl5/PVE/LXC/BindSnap/Clone/$(basename "$v")\$" contents.txt
+          done
+          ctl="$(mktemp -d)"
+          dpkg-deb --control "$deb" "$ctl"
+          for s in preinst postinst postrm triggers; do test -f "$ctl/$s"; done
+          if grep -v '^drwxr-xr-x\|^-rw-r--r--' contents.txt | grep .; then
+            echo "unexpected file modes in the package (above)"; exit 1
+          fi
+          # reproducible: a second build into another directory is byte-identical
+          deb2="$(OUT_DIR="$RUNNER_TEMP/rebuild" tools/build-deb.sh)"
+          cmp "$deb" "$deb2"
+
