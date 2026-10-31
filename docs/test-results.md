@@ -235,6 +235,40 @@ read `checksum-validated` on each, and every case passed again.
 | 6.1.15        | 6.0.5        | 9.2.24 | `3c7e8deb...1ff48998` | `892c3fcd...5d8400dd` |
 | 6.1.16        | 6.0.5        | 9.2.25 | `3c7e8deb...1ff48998` | `ed915d4f...5caf1947` |
 
+## 1.4.0: per-build clone variants and the Debian package
+
+Run on 2026-10-31 on the same 15 nested PVE nodes (one per guard state, 6.0.18 to 6.1.16), each
+reset to its clean state before and after every scenario. The package was built twice,
+`1.4.0~e2e1` and `~e2e2`, and served from two signed flat test repositories with the same layout
+as the release one. Before each install and after each removal a manifest was recorded (both
+diverts, the trees under `/usr/share/perl5/PVE`, `/usr/local/lib/site_perl`, `/etc/apt` and
+`/usr/share/keyrings` with content hashes, `dpkg --verify`, the package status and the PVE
+daemon states); every removal had to restore it exactly.
+
+| Scenario | What it checks                                                                                                                                                                                                                                                                                                                      | Nodes                                              | Result     |
+|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------|------------|
+| apt      | `install-apt.sh` installs from repository 1; both guards validated with the expected variant; snapshot, rollback, running CT, vzdump, exclude and clone cases; repository 2 added, the GUI's update list (`pvesh .../apt/update`) offers the new version, `apt-get dist-upgrade` takes it; `--remove --purge` restores the manifest | all 15                                             | 43/43 each |
+| script   | `install.sh` with the variants, the same cases, `uninstall.sh` restores the manifest                                                                                                                                                                                                                                                | all 15                                             | 28/28 each |
+| migrate  | `install.sh`, then `install-apt.sh` takes it over (notice printed, one divert per file, script copy gone), cases pass, purge restores the manifest                                                                                                                                                                                  | 6.0.18, 6.1.1, 6.1.5, 6.1.10 (one per variant)     | 26/26 each |
+| upgrade  | package installed, then `pve-container` upgraded with the release repositories enabled: the new file lands at `.distrib`, both wrappers stay, the trigger prints the new guard state, the cases pass on the new build, removal leaves a stock node                                                                                  | 6.1.6 -> 6.1.7, 6.1.10 -> 6.1.15, 6.1.11 -> 6.1.13 | 23/23 each |
+
+Every variant ran on the builds it was taken from: `v6_0_17` on 6.0.18, `v6_0_19` on 6.0.19 to
+6.1.2, `v6_1_3` on 6.1.3 to 6.1.6 and `v6_1_7` from 6.1.7 on. The 6.1.6 -> 6.1.7 upgrade crosses a
+variant boundary: after the upgrade the trigger reported, and the clone override used, `v6_1_7`
+in place of `v6_1_3`.
+
+Found and fixed during the run: `install-apt.sh` never printed that it takes over an `install.sh`
+installation. Its check piped `dpkg-divert --list` into `grep -q` under `set -o pipefail`, and
+grep's early exit made `dpkg-divert` die of SIGPIPE, so the test read false on every node. The
+takeover itself worked; all divert checks now ask `dpkg-divert --listpackage`.
+
+Not reproduced: one apt run read `pveproxy` as inactive right after the removal; four reruns
+on that node and one on another read it active at once. The runner now gives the daemons up to
+30 s to settle and records their status and journal if one stays down.
+
+Not covered here: apt following the GitHub `releases/latest/download` redirect (checked on one
+node after the release), and SDN IPAM during a clone.
+
 ## Aftermath
 
 The test CT was restored to its original config (rootfs only, original Notes, no test
