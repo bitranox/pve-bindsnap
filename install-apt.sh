@@ -118,7 +118,9 @@ do_install() {
         echo ">> repository added; install with: apt-get install $PACKAGE"
         return
     }
-    if ! package_installed && dpkg-divert --list 2>/dev/null | grep -q "by $PACKAGE\$"; then
+    # Asked per path, not "dpkg-divert --list | grep -q": under pipefail grep's early exit
+    # SIGPIPEs dpkg-divert (141) and the test reads false although the diversion exists.
+    if ! package_installed && [ "$(dpkg-divert --listpackage /usr/share/perl5/PVE/LXC/Config.pm)" = "$PACKAGE" ]; then
         echo ">> found an install.sh installation; the package takes it over"
     fi
     echo ">> apt-get install $PACKAGE"

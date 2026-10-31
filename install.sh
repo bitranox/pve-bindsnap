@@ -114,7 +114,7 @@ rm -f "$DEST_CLONE"/*.pm # a variant dropped upstream must not linger
 install -m 0644 "$SRC_DIR"/lib/PVE/LXC/BindSnap/Clone/v*.pm "$DEST_CLONE/"
 
 echo ">> diverting $CONFIG_PM -> $CONFIG_DISTRIB"
-if dpkg-divert --list "$CONFIG_PM" 2>/dev/null | grep -q "by $DIVERT_TAG"; then
+if [ "$(dpkg-divert --listpackage "$CONFIG_PM")" = "$DIVERT_TAG" ]; then
     echo "   already diverted by us"
 else
     dpkg-divert --add --rename --package "$DIVERT_TAG" --divert "$CONFIG_DISTRIB" "$CONFIG_PM"
@@ -129,7 +129,7 @@ echo ">> installing wrapper -> $CONFIG_PM"
 install -D -m 0644 "$SRC_DIR/lib/PVE/LXC/Config.wrapper.pm" "$CONFIG_PM"
 
 echo ">> diverting $API_PM -> $API_DISTRIB"
-if dpkg-divert --list "$API_PM" 2>/dev/null | grep -q "by $DIVERT_TAG"; then
+if [ "$(dpkg-divert --listpackage "$API_PM")" = "$DIVERT_TAG" ]; then
     echo "   already diverted by us"
 else
     dpkg-divert --add --rename --package "$DIVERT_TAG" --divert "$API_DISTRIB" "$API_PM"

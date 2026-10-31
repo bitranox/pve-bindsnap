@@ -55,12 +55,12 @@ if [ -e "$API_PM" ] && grep -q "$DIVERT_TAG" "$API_PM" 2>/dev/null; then
 fi
 
 # Revert the diverts: move each genuine upstream from .distrib back to its real path.
-if dpkg-divert --list "$CONFIG_PM" 2>/dev/null | grep -q "by $DIVERT_TAG"; then
+if [ "$(dpkg-divert --listpackage "$CONFIG_PM")" = "$DIVERT_TAG" ]; then
     dpkg-divert --remove --rename --package "$DIVERT_TAG" --divert "$CONFIG_DISTRIB" "$CONFIG_PM"
     changed=1
     echo "   - reverted divert (restored $CONFIG_PM)"
 fi
-if dpkg-divert --list "$API_PM" 2>/dev/null | grep -q "by $DIVERT_TAG"; then
+if [ "$(dpkg-divert --listpackage "$API_PM")" = "$DIVERT_TAG" ]; then
     dpkg-divert --remove --rename --package "$DIVERT_TAG" --divert "$API_DISTRIB" "$API_PM"
     changed=1
     echo "   - reverted divert (restored $API_PM)"
