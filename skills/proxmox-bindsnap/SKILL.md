@@ -30,7 +30,8 @@ plain `zfs snapshot <pool>/subvol-<vmid>-disk-0@name` on the stopped CT is simpl
 
 ## 1. Install
 
-Two ways; both install the same files. **Prefer the apt package** when the node should keep
+Two ways; both install the same overlay, clone variants and two diverts (the package keeps the
+module in `/usr/share/perl5`, the script in `/usr/local/lib/site_perl`). **Prefer the apt package** when the node should keep
 pve-bindsnap current through Proxmox's own updates (GUI Node -> Updates, or `apt-get upgrade`):
 
 ```
@@ -39,8 +40,12 @@ curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install-
 
 It adds the signed pve-bindsnap repository (key fingerprint
 `1445 C598 166A 481A C529  2FE1 A5A5 351D 2BC8 8FDC`, trusted for that repository only) and
-installs the `pve-bindsnap` package, which takes over a node installed by `install.sh`. Options:
-`--no-install`, `--remove [--purge]`, `--repo-url URL`. While the package is installed,
+installs the `pve-bindsnap` package. On a node installed by `install.sh`, run it as is, WITHOUT
+uninstalling first: the package takes that installation over. Options: `--no-install` (only add
+the repository), `--remove` (remove the repository and its key, keep the package), `--purge`
+with `--remove` (also purge the package), `--repo-url URL` (a mirror or test repository instead
+of the GitHub release one); piped from curl they go after
+`bash -s --` (`... install-apt.sh | bash -s -- --remove --purge`). While the package is installed,
 `install.sh` and `uninstall.sh` refuse; use apt. Details: docs/install-apt.md in the repo.
 
 **Or the script**, updated by re-running it. The model is "read the source, then install from
@@ -73,7 +78,7 @@ journalctl -u pvedaemon -b --no-pager | grep pve-bindsnap | tail -3
 - `overlay active (... checksum-validated ...)` and `clone overlay active (... checksum-validated ...)`
   -> this pve-container build is tested; bind-mount snapshots and clones work with no keyword.
 - `overlay active in TEST mode: ... is untested` -> build not in the table; bind-mount snapshots
-  are refused unless opted in (section 5), and `clone overlay loaded but NOT active` -> clone stays
+  are refused unless opted in (sections 4 and 5), and `clone overlay loaded but NOT active` -> clone stays
   stock (bind clones refused). See section 5 to get the build vetted.
 
 Optional direct check:
@@ -150,7 +155,8 @@ The pairing matters because the snapshot checksum also covers `AbstractConfig.pm
 can move a node into TEST mode.
 
 A **known-BAD** build is a hard block: `BINDSNAP-UNSUPPORTED` will NOT override it; update
-pve-container or use `zfs snapshot` directly.
+pve-container (and libpve-guest-common-perl, whose `AbstractConfig.pm` the snapshot checksum also
+covers) or use `zfs snapshot` directly.
 
 **A pre-change safety net on a build the guard refuses:** take a stock backup,
 `vzdump <vmid> --storage <store>`. The overlay passes every `vzdump` call straight to stock code
@@ -178,14 +184,14 @@ snapshot it first with `BINDSNAP-FORCE-RUNNING`, then `pct clone <vmid> <newid> 
 
 ## 7. Uninstall
 
-Installed with apt: `install-apt.sh --remove --purge` (purges the package and removes the
-repository), or `apt-get purge pve-bindsnap` to keep the repository. Installed with the script:
+Installed with apt: `curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install-apt.sh | bash -s -- --remove --purge` (purges the package and
+removes the repository), or `apt-get purge pve-bindsnap` to keep the repository. Installed with the script:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/uninstall.sh | bash
 ```
 
-Either reverts both diverts and restores stock Proxmox. Snapshots you already took persist as zfs
+Each of these reverts both diverts and restores stock Proxmox. Snapshots you already took persist as zfs
 snapshots and in the CT config (`zfs list -t snapshot | grep subvol-<vmid>`).
 
 ## Troubleshooting
@@ -197,7 +203,7 @@ snapshots and in the CT config (`zfs list -t snapshot | grep subvol-<vmid>`).
 | `unable to clone mountpoint 'mpN' (type bind)`                 | Clone override not active: not installed, OR build untested (clone stays stock). Install / get the build vetted (section 5).           |
 | `CT <vmid> is running ... stop ... or BINDSNAP-FORCE-RUNNING`  | Stop the CT, or add `BINDSNAP-FORCE-RUNNING` (section 4).                                                                              |
 | `pve-container <ver> is ... untested ... BINDSNAP-UNSUPPORTED` | Build not in the table. Opt in to TEST and get it vetted (section 5).                                                                  |
-| `on the overlay's known-BAD list ... BLOCKED`                  | Hard block; update pve-container or use `zfs snapshot`.                                                                                |
+| `on the overlay's known-BAD list ... BLOCKED`                  | Hard block; update pve-container (and libpve-guest-common-perl) or use `zfs snapshot`.                                                 |
 | Clone inherited a data mount it should not have                | Add `BINDSNAP-EXCLUDE: mpN` to the SOURCE CT Notes (section 6).                                                                        |
 | No `pve-bindsnap:` line in the journal                         | Banner only prints from a PVE daemon (not a TTY). Check `journalctl -u pvedaemon -b`; confirm `$APPLIED`/`$CLONE_APPLIED` (section 2). |
 

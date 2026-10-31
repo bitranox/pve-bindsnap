@@ -23,7 +23,9 @@ curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install-
    repository only (`Signed-By`), never system-wide;
 3. runs `apt-get update` for this repository and `apt-get install -y pve-bindsnap`.
 
-Re-running it is safe. Its options:
+Re-running it is safe. Piped from curl, it takes its options after `bash -s --`, for example
+`curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install-apt.sh | bash -s -- --remove --purge`; from a checkout, run `./install-apt.sh <options>`.
+Its options:
 
 | Command                           | Does                                                 |
 |-----------------------------------|------------------------------------------------------|
@@ -90,7 +92,7 @@ package is installed both refuse and point at `apt-get purge pve-bindsnap`.
 ## Remove
 
 ```bash
-install-apt.sh --remove --purge
+curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install-apt.sh | bash -s -- --remove --purge
 ```
 
 This purges the package (stock Proxmox is back) and removes the repository and its key.

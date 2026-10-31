@@ -87,7 +87,7 @@ curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install-
 
 `install-apt.sh` adds the signed pve-bindsnap apt repository (its key is trusted for that
 repository only) and installs the `pve-bindsnap` package. Remove everything again with
-`install-apt.sh --remove --purge`. A node installed with `install.sh` is taken over as it
+`curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install-apt.sh | bash -s -- --remove --purge`. A node installed with `install.sh` is taken over as it
 stands. Details, the key fingerprint and installing the `.deb` by hand:
 [install with apt](docs/install-apt.md).
 

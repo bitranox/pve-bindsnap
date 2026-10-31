@@ -10,6 +10,7 @@
 # This is the alternative to install.sh; a node installed by install.sh is taken over
 # by the package as it stands. Run on each node; re-running is idempotent.
 #   curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install-apt.sh | bash
+# Piped like that, options go after "bash -s --" (... | bash -s -- --remove --purge).
 #
 #   install-apt.sh                    add the repository and install the package
 #   install-apt.sh --no-install       only add the repository (and run apt-get update)
