@@ -27,6 +27,8 @@ BEGIN {
         my ($class, $name) = @_;
         return $PVE::API2::LXC::REGISTRY{$name};
     }
+    # the variants' method hash calls this (upstream imports it from PVE::JSONSchema)
+    sub get_standard_option { my ($name, $extra) = @_; return { %{ $extra // {} } }; }
     $INC{'PVE/API2/LXC.pm'} = __FILE__;
 }
 
@@ -51,8 +53,13 @@ is($B->can('_clone_disposition')->('rootfs', 'bind', {}), 'carry', 'rootfs is ne
 is($B->can('_clone_disposition')->('net0', undef, {}),    'copy-other', 'netN is copied as-is');
 is($B->can('_clone_disposition')->('hostname', undef, {}), 'copy-other', 'a non-mountpoint option is copied as-is');
 
-# === _clone_code returns an installable coderef ===
-is(ref($B->can('_clone_code')->('6.1.10')), 'CODE', '_clone_code() returns a CODE ref to install as clone_vm {code}');
+# === _clone_code_for loads a per-build variant and returns an installable coderef ===
+for my $v (qw(v6_0_17 v6_0_19 v6_1_3 v6_1_7)) {
+    is(ref($B->can('_clone_code_for')->($v)), 'CODE', "_clone_code_for('$v') returns a CODE ref for clone_vm {code}");
+}
+ok(!eval { $B->can('_clone_code_for')->('v9_9_9'); 1 },      'an unknown variant dies (apply_clone then stays stock)');
+ok(!eval { $B->can('_clone_code_for')->('../../etc'); 1 },   'a malformed variant name is refused before any require');
+is($B->can('_clone_vlabel')->(), 'unknown', 'the summary label is unknown until a variant is installed');
 
 # === _clone_summary: task-log report (parity with _snapshot_summary) ===
 {
