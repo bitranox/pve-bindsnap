@@ -64,10 +64,10 @@ require_root_on_pve() {
         echo "!! run as root" >&2
         exit 1
     }
-    command -v pveversion >/dev/null 2>&1 && [ -e /usr/share/perl5/PVE/LXC/Config.pm ] || {
+    if ! command -v pveversion >/dev/null 2>&1 || [ ! -e /usr/share/perl5/PVE/LXC/Config.pm ]; then
         echo "!! this is not a Proxmox VE node (no pveversion / PVE::LXC::Config)" >&2
         exit 1
-    }
+    fi
     local codename
     codename="$(sed -n 's/^VERSION_CODENAME="\{0,1\}\([a-z]*\)"\{0,1\}$/\1/p' /etc/os-release)"
     [ "$codename" = "trixie" ] || {
