@@ -18,7 +18,7 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
-## [1.4.0] - unreleased
+## [1.4.0] - 2026-10-31
 
 ### Added
 
