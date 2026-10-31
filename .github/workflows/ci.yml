@@ -14,12 +14,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # perl, prove, shellcheck and the core modules the tests use
-      # (Test::More, File::Temp, FindBin, Digest::SHA) ship with the runner.
+      # perl, prove and the core modules the tests use (Test::More, File::Temp,
+      # FindBin, Digest::SHA) ship with the runner. Its shellcheck is the image's apt
+      # package and lags the one used locally (0.9.0 reported an SC2015 that 0.11.0 does
+      # not), so CI fetches a pinned release instead and checks with that one.
+      - name: Install pinned shellcheck
+        run: |
+          curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz -o "$RUNNER_TEMP/shellcheck.tar.xz"
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" "$RUNNER_TEMP/shellcheck"
+
       - name: Tool versions
         run: |
           perl --version | sed -n '2p'
-          shellcheck --version | sed -n '2p'
+          "$RUNNER_TEMP/shellcheck" --version | sed -n '2p'
 
       - name: Perl syntax check
         run: |
@@ -46,7 +54,8 @@ jobs:
           head -1 skills/proxmox-bindsnap/SKILL.md | grep -qx -- '---'
 
       - name: Shellcheck
-        run: shellcheck install.sh uninstall.sh install-apt.sh tools/build-deb.sh tools/build-apt-repo.sh debian/preinst debian/postinst debian/postrm
+        run: |
+          "$RUNNER_TEMP/shellcheck" install.sh uninstall.sh install-apt.sh tools/build-deb.sh tools/build-apt-repo.sh debian/preinst debian/postinst debian/postrm
 
       # shfmt is not preinstalled on the runner; fetch a pinned release binary.
       - name: Shfmt
