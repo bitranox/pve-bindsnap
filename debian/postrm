@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# pve-bindsnap postrm: dpkg has already removed this package's wrappers, so move each
+# genuine upstream module back from <file>.distrib to its real path, then reload the PVE
+# daemons onto the stock code. Not on upgrade or abort-upgrade: the diverts stay for the
+# version that remains installed.
+set -e
+
+SERVICES="pvedaemon pveproxy pvestatd"
+
+undivert() {
+    dpkg-divert --package pve-bindsnap --remove --rename --divert "$1.distrib" "$1"
+}
+
+case "$1" in
+remove | abort-install | disappear)
+    undivert /usr/share/perl5/PVE/LXC/Config.pm
+    undivert /usr/share/perl5/PVE/API2/LXC.pm
+    if [ -d /run/systemd/system ]; then
+        # shellcheck disable=SC2086 # SERVICES is a word list on purpose
+        systemctl reload-or-try-restart $SERVICES || true
+    fi
+    ;;
+esac
+
+exit 0

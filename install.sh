@@ -21,6 +21,8 @@ REPO_URL="https://github.com/bitranox/pve-bindsnap"
 # The overlay module loads from Perl's default @INC, on local root, in a
 # version-independent dir (survives perl upgrades).
 DEST_MOD="/usr/local/lib/site_perl/PVE/LXC/BindSnap.pm"
+# The per-build clone_vm variants the overlay picks from (PVE::LXC::BindSnap::Clone::*).
+DEST_CLONE="/usr/local/lib/site_perl/PVE/LXC/BindSnap/Clone"
 # The modules we divert, and where dpkg-divert keeps the genuine upstream. Two diverts:
 # Config.pm carries the snapshot overlay; API2/LXC.pm carries the clone override.
 CONFIG_PM="/usr/share/perl5/PVE/LXC/Config.pm"
@@ -29,6 +31,26 @@ API_PM="/usr/share/perl5/PVE/API2/LXC.pm"
 API_DISTRIB="/usr/share/perl5/PVE/API2/LXC.pm.distrib"
 DIVERT_TAG="pve-bindsnap"
 SERVICES=(pvedaemon pveproxy pvestatd)
+
+# The Debian package (install-apt.sh, or apt install pve-bindsnap) owns the same diverts
+# and wrappers. Mixing the two would leave dpkg and this script fighting over the files,
+# so refuse while the package is installed (a removed-but-not-purged package owns
+# nothing and is fine).
+package_installed() {
+    local status
+    status="$(dpkg-query -W -f='${Status}' pve-bindsnap 2>/dev/null || true)"
+    case "$status" in
+    "" | *" not-installed" | *" config-files") return 1 ;;
+    *) return 0 ;;
+    esac
+}
+
+if package_installed; then
+    echo "!! the pve-bindsnap Debian package is installed; it is updated by apt (the GUI" >&2
+    echo "   Updates panel or apt-get upgrade). To switch to this script instead, first run:" >&2
+    echo "   apt-get purge pve-bindsnap" >&2
+    exit 1
+fi
 
 # Roll back on ANY failure once the divert is in place, so the node is never left with
 # Config.pm diverted away and no wrapper (which would break the LXC stack). The trap is
@@ -51,6 +73,7 @@ cleanup() {
         dpkg-divert --remove --rename --package "$DIVERT_TAG" --divert "$CONFIG_DISTRIB" "$CONFIG_PM" 2>/dev/null || true
         dpkg-divert --remove --rename --package "$DIVERT_TAG" --divert "$API_DISTRIB" "$API_PM" 2>/dev/null || true
         rm -f "$DEST_MOD"
+        rm -rf "$(dirname "$DEST_CLONE")"
     fi
 }
 trap cleanup EXIT
@@ -67,7 +90,8 @@ if [ -z "$SRC_DIR" ] || [ ! -f "$SRC_DIR/lib/PVE/LXC/BindSnap.pm" ]; then
     curl -fsSL "$REPO_URL/archive/refs/heads/main.tar.gz" | tar -xz -C "$tmp"
     SRC_DIR="$tmp/pve-bindsnap-main"
 fi
-if [ ! -f "$SRC_DIR/lib/PVE/LXC/BindSnap.pm" ] || [ ! -f "$SRC_DIR/lib/PVE/API2/LXC.wrapper.pm" ]; then
+if [ ! -f "$SRC_DIR/lib/PVE/LXC/BindSnap.pm" ] || [ ! -f "$SRC_DIR/lib/PVE/API2/LXC.wrapper.pm" ] ||
+    ! compgen -G "$SRC_DIR/lib/PVE/LXC/BindSnap/Clone/v*.pm" >/dev/null; then
     echo "!! could not locate the overlay source (fetch failed?)" >&2
     exit 1
 fi
@@ -84,6 +108,10 @@ fi
 echo ">> installing overlay module -> $DEST_MOD"
 install -D -m 0644 "$SRC_DIR/lib/PVE/LXC/BindSnap.pm" "$DEST_MOD"
 perl -c "$DEST_MOD"
+echo ">> installing clone_vm variants -> $DEST_CLONE"
+install -d "$DEST_CLONE"
+rm -f "$DEST_CLONE"/*.pm # a variant dropped upstream must not linger
+install -m 0644 "$SRC_DIR"/lib/PVE/LXC/BindSnap/Clone/v*.pm "$DEST_CLONE/"
 
 echo ">> diverting $CONFIG_PM -> $CONFIG_DISTRIB"
 if dpkg-divert --list "$CONFIG_PM" 2>/dev/null | grep -q "by $DIVERT_TAG"; then

@@ -1,0 +1,4 @@
+# Re-check the guard state when a pve-container (PVE/LXC/) or libpve-guest-common-perl
+# (AbstractConfig.pm) upgrade changes the upstream code the checksums cover.
+interest-noawait /usr/share/perl5/PVE/LXC
+interest-noawait /usr/share/perl5/PVE/AbstractConfig.pm

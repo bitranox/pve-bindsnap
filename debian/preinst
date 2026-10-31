@@ -1,0 +1,34 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# pve-bindsnap preinst: divert the two upstream modules this package replaces with its
+# wrappers. dpkg then installs pve-container's copies at <file>.distrib (now and on
+# every later pve-container upgrade) and this package's wrappers at the original paths.
+# The divert tag is the package name, the same tag install.sh uses, so a node installed
+# by install.sh is adopted as it stands.
+set -e
+
+divert() {
+    dpkg-divert --package pve-bindsnap --add --rename --divert "$1.distrib" "$1"
+}
+
+# install.sh puts the overlay under /usr/local/lib/site_perl; the package ships it
+# under /usr/share/perl5. Remove the script-installed copy so only one exists, and the
+# directories install.sh created once they are empty (stock PVE has none of them).
+remove_script_install() {
+    rm -f /usr/local/lib/site_perl/PVE/LXC/BindSnap.pm
+    rm -rf /usr/local/lib/site_perl/PVE/LXC/BindSnap
+    for d in /usr/local/lib/site_perl/PVE/LXC /usr/local/lib/site_perl/PVE /usr/local/lib/site_perl; do
+        [ -d "$d" ] || continue
+        rmdir "$d" 2>/dev/null || break
+    done
+}
+
+case "$1" in
+install | upgrade)
+    divert /usr/share/perl5/PVE/LXC/Config.pm
+    divert /usr/share/perl5/PVE/API2/LXC.pm
+    remove_script_install
+    ;;
+esac
+
+exit 0

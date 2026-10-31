@@ -1,0 +1,62 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# pve-bindsnap postinst: check that the overlay loads through the wrappers, then reload
+# the PVE daemons so they pick it up, and print the guard state into the apt log.
+#   configure -- after install/upgrade of this package. A failed check exits non-zero
+#                and reloads nothing: the wrappers load the overlay eval-guarded, so the
+#                node keeps stock behaviour, and apt reports the package unconfigured.
+#   triggered -- after pve-container or libpve-guest-common-perl changed the upstream
+#                code (see the triggers file). A failed check only WARNS: the node is
+#                stock-safe, and failing here would abort the user's PVE upgrade.
+set -e
+
+SERVICES="pvedaemon pveproxy pvestatd"
+
+preflight() {
+    if ! perl -e 'require PVE::LXC::Config; exit($PVE::LXC::BindSnap::APPLIED ? 0 : 1)' >/dev/null 2>&1; then
+        echo "pve-bindsnap: PRE-FLIGHT FAILED -- the snapshot overlay did not apply." >&2
+        return 1
+    fi
+    if ! perl -e 'require PVE::API2::LXC; exit($PVE::LXC::BindSnap::CLONE_LOADED ? 0 : 1)' >/dev/null 2>&1; then
+        echo "pve-bindsnap: PRE-FLIGHT FAILED -- the clone overlay did not load." >&2
+        return 1
+    fi
+}
+
+# The overlay prints its activation lines only from a PVE daemon writing to a non-tty
+# (the journal), so present it as one: $0 named like pvedaemon, stderr into a pipe.
+report() {
+    perl -e '$0 = "pvedaemon"; require PVE::LXC::Config; require PVE::API2::LXC;' 2>&1 |
+        grep '^pve-bindsnap:' || true
+}
+
+# reload-or-try-restart is the graceful form pve-manager uses itself: the PVE daemons
+# re-exec on reload, so a GUI-started apt run is not cut off, and a stopped daemon stays
+# stopped. Skipped outside a running systemd (chroot, image build).
+reload_daemons() {
+    [ -d /run/systemd/system ] || return 0
+    # shellcheck disable=SC2086 # SERVICES is a word list on purpose
+    systemctl reload-or-try-restart $SERVICES || true
+}
+
+case "$1" in
+configure)
+    if ! preflight; then
+        echo "pve-bindsnap: daemons NOT reloaded; Proxmox keeps its stock behaviour." >&2
+        exit 1
+    fi
+    report
+    reload_daemons
+    ;;
+triggered)
+    if preflight; then
+        report
+    else
+        echo "pve-bindsnap: WARNING -- after this upgrade the overlay does not load;" >&2
+        echo "pve-bindsnap: Proxmox runs stock. Please report it: https://github.com/bitranox/pve-bindsnap/issues" >&2
+    fi
+    reload_daemons
+    ;;
+esac
+
+exit 0

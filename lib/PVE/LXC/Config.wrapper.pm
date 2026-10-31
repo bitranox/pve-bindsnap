@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 bitranox  (see LICENSE: GNU AGPL v3.0)
 # =====================================================================
-# install.sh installs THIS file at /usr/share/perl5/PVE/LXC/Config.pm, AFTER
+# install.sh, or the pve-bindsnap package, installs THIS file at
+# /usr/share/perl5/PVE/LXC/Config.pm, AFTER
 # dpkg-divert has renamed the genuine upstream module to Config.pm.distrib in
 # the same directory. It does two things, in this order, and nothing else:
 #

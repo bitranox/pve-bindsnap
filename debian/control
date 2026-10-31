@@ -1,0 +1,20 @@
+Package: pve-bindsnap
+Version: @VERSION@
+Architecture: all
+Maintainer: bitranox <rnowotny1966@gmail.com>
+Installed-Size: @SIZE@
+Depends: perl, pve-container, libpve-guest-common-perl
+Section: admin
+Priority: optional
+Homepage: https://github.com/bitranox/pve-bindsnap
+Description: snapshot and clone Proxmox LXC containers with bind/device mounts
+ Proxmox VE refuses snapshots and clones of LXC containers that carry bind or
+ device mountpoints (mpN pointing at host paths). pve-bindsnap diverts
+ PVE::LXC::Config and PVE::API2::LXC and loads a small overlay that hides those
+ mountpoints from the snapshot code path and carries them to a clone, while
+ delegating everything else to the live upstream code.
+ .
+ Both overrides are gated by content checksums of the upstream source: on a
+ pve-container build that is not in the tested set, bind-mount snapshots need
+ an explicit opt-in and clone stays stock. Removing the package restores the
+ stock Proxmox modules.

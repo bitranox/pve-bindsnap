@@ -20,3 +20,6 @@ docs/extinfo.md
 *.local.json
 # bitranox curated memory (local; CLAUDE.local.md @imports it)
 CLAUDE.local.md
+
+# built packages and apt repo (tools/build-deb.sh, tools/build-apt-repo.sh)
+dist/

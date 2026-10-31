@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 bitranox  (see LICENSE: GNU AGPL v3.0)
 # =====================================================================
-# install.sh installs THIS file at /usr/share/perl5/PVE/API2/LXC.pm, AFTER
+# install.sh, or the pve-bindsnap package, installs THIS file at
+# /usr/share/perl5/PVE/API2/LXC.pm, AFTER
 # dpkg-divert has renamed the genuine upstream module to LXC.pm.distrib in the
 # same directory. It does two things, in this order, and nothing else:
 #
@@ -13,8 +14,9 @@
 #      is the one accepted point of failure.
 #
 #   2. Load our additive overlay and call apply_clone(), which (on a checksum-
-#      validated build) replaces the registered clone_vm method's {code} with a
-#      copy that carries bind/device mountpoints to the clone instead of dying.
+#      validated build) replaces the registered clone_vm method's {code} with that
+#      build's own clone_vm (the matching PVE::LXC::BindSnap::Clone variant), patched
+#      to carry bind/device mountpoints to the clone instead of dying.
 #      This is eval-guarded so an overlay bug can NEVER stop PVE::API2::LXC from
 #      loading; on failure we are simply back to stock clone behaviour.
 #
