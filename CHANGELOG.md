@@ -18,6 +18,16 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.4.1] - 2026-11-16
+
+### Fixed
+
+- The `proxmox-bindsnap` skill now says a pve-container build newer than the compatible-versions
+  list is not untested on that ground alone: the overlay matches the checksum of the guarded
+  files, each guard on its own, so a later build whose guarded files did not change validates
+  as `checksum-validated` with no new row. Judge a node from its journal line, never by
+  comparing its version with the list. No code change: the overlay behaves as in 1.4.0.
+
 ## [1.4.0] - 2026-10-31
 
 ### Added

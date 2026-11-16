@@ -152,7 +152,11 @@ authoritative list. As of pve-bindsnap **1.4.0** it holds, for both guards, each
 `libpve-guest-common-perl` version it shipped with; each row of the list names that pairing.
 The pairing matters because the snapshot checksum also covers `AbstractConfig.pm`, which ships in
 `libpve-guest-common-perl` rather than in `pve-container`, so an apt upgrade of EITHER package
-can move a node into TEST mode.
+can move a node into TEST mode. The reverse holds too: a build newer than the top of that list is
+not untested on that ground alone. The overlay keys on the checksum of the guarded files, never on
+the version, so a later build whose guarded files did not change validates as `checksum-validated`,
+each guard on its own, with no new row. Judge a node from its journal line, never by comparing its
+version with the list.
 
 A **known-BAD** build is a hard block: `BINDSNAP-UNSUPPORTED` will NOT override it; update
 pve-container (and libpve-guest-common-perl, whose `AbstractConfig.pm` the snapshot checksum also
