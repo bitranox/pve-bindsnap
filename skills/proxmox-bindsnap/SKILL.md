@@ -1,6 +1,6 @@
 ---
 name: infra-proxmox-bindsnap
-description: Use when snapshotting or cloning Proxmox LXC containers that have bind/device mounts (mpN -> host paths) - the snapshot button is greyed out or pct snapshot refuses the container with "snapshot feature is not available", or pct clone fails with "unable to clone mountpoint 'mpN' (type bind)", or you cannot snapshot a bind-mount container. Covers pve-bindsnap install, verify, the BINDSNAP-FORCE-RUNNING / BINDSNAP-UNSUPPORTED / BINDSNAP-EXCLUDE markers, the checksum guard for an untested pve-container build, clone, and uninstall on a Proxmox VE node.
+description: Use when snapshotting or cloning Proxmox LXC containers that have bind/device mounts (mpN -> host paths) - the snapshot button is greyed out or pct snapshot refuses the container with "snapshot feature is not available", or pct snapshot exits 255 with "snapshot gated -- pve-container X is untested", or pct clone fails with "unable to clone mountpoint 'mpN' (type bind)", or you cannot snapshot a bind-mount container. Covers pve-bindsnap install, verify, the BINDSNAP-FORCE-RUNNING / BINDSNAP-UNSUPPORTED / BINDSNAP-EXCLUDE markers, the checksum guard for an untested pve-container build, clone, and uninstall on a Proxmox VE node.
 ---
 
 # proxmox-bindsnap
@@ -25,8 +25,9 @@ each command with `ssh root@<node>`. All `pct`/`journalctl`/`perl` commands belo
 - You want to clone a bind-mount CT and control whether the copy inherits the bind mounts.
 
 **Not for:** containers without bind/device mounts (they already snapshot/clone stock -- the
-overlay never touches them). If you only need a rootfs snapshot and not the GUI/scheduler,
-plain `zfs snapshot <pool>/subvol-<vmid>-disk-0@name` on the stopped CT is simpler and needs none of this.
+overlay never touches them). If you need a snapshot of a STOPPED CT whose managed volumes are
+ALL on ZFS, and not the GUI/scheduler, a plain `zfs snapshot` of every one of them is simpler and
+needs none of this (how, and what it costs: section 5, "A safety snapshot NOW").
 
 ## 1. Install
 
@@ -94,8 +95,9 @@ perl -e 'require PVE::LXC::Config; require PVE::API2::LXC;
 |------------------------------------------------|--------------------------------------------------------------------|
 | Snapshot a STOPPED bind-mount CT, tested build | Just `pct snapshot <vmid> <name>`                                  |
 | Snapshot a RUNNING CT                          | Add `BINDSNAP-FORCE-RUNNING` (section 4)                           |
+| Safety net NOW, stopped CT, all volumes on ZFS | Raw `zfs snapshot` of every managed volume (section 5)             |
+| Safety net NOW, any other case                 | `vzdump <vmid> --storage <store>`, snapshot mode (section 5)       |
 | Build shows TEST mode / untested               | Opt in with `BINDSNAP-UNSUPPORTED`, then get it vetted (section 5) |
-| Need a safety net NOW on an untested build     | `vzdump <vmid> --storage <store>`, snapshot mode (section 5)       |
 | Keep a managed data disk out of the snapshot   | `BINDSNAP-EXCLUDE: mpN` in CT Notes (section 4)                    |
 | Clone a bind-mount CT                          | `pct clone` works; binds are carried (section 6)                   |
 | Clone must NOT inherit a bind/data mount       | `BINDSNAP-EXCLUDE: mpN` in the SOURCE CT Notes                     |
@@ -134,6 +136,49 @@ bind/device host data stays exactly as it is now, untouched. So a rollback is no
 restore of what a bind mount points at -- only managed-volume data is versioned. (Bind data is
 host data outside Proxmox storage; stock Proxmox never versions it either.)
 
+**A safety snapshot NOW, on a build the guard refuses.** On an untested build `pct snapshot` of a
+bind-mount CT exits 255 with `pve-bindsnap: snapshot gated -- pve-container <ver> is untested`,
+then `add BINDSNAP-UNSUPPORTED or update pve-container` (a known-BAD build says
+`snapshot BLOCKED`). The refusal comes before any snapshot is taken, so it leaves no ZFS snapshot
+or config entry behind. Two routes run no overlay snapshot code at all; offer them before
+`BINDSNAP-UNSUPPORTED`. The refusal and its exit code are the overlay's (seen on
+pve-container 6.1.20 with overlay 1.4.1); the ZFS and Proxmox behaviour below is from their
+documentation and source, not from an overlay test.
+
+- **Raw ZFS snapshot: a STOPPED CT whose managed volumes are all on ZFS.** Instant, and so is its
+  rollback. Check that it applies first:
+  1. `pct status <vmid>` says `stopped`. A running CT gives only a crash-consistent copy: use
+     `vzdump` instead.
+  2. `pct config <vmid>`: each `rootfs` or `mpN` value starting with `/` is a bind mount and each
+     `devN` a device; both are host data and in no snapshot either way (snapshot a bind source
+     yourself on the host if its data must be kept too). Every other `rootfs`/`mpN` is a managed
+     volume `<storage>:<volume>`, and `pvesm status` must show each such storage with type
+     `zfspool`. One on `lvmthin`, `dir`, `nfs`, `rbd` or any other type is not covered by this
+     route: use `vzdump`.
+  3. Map each managed volume to its dataset:
+     `zfs list -H -t filesystem -o name | grep 'subvol-<vmid>-disk-'` lists them as
+     `<pool>/subvol-<vmid>-disk-N`; keep the ones `pct config` names.
+  4. Snapshot ALL of them in one command, with one name no later `pct snapshot` will use (a
+     second snapshot of the same name on a dataset is refused). A rootfs-only snapshot misses
+     every `mpN` volume:
+     `zfs snapshot <pool>/subvol-<vmid>-disk-0@<name> <pool>/subvol-<vmid>-disk-1@<name>`
+  5. Save the CT config, which no ZFS snapshot holds:
+     `cp /etc/pve/lxc/<vmid>.conf /root/<vmid>.conf.<name>`
+
+  What it costs: Proxmox does not know about it. It is not in `pct listsnapshot` or the GUI, and
+  `pct rollback` / `pct delsnapshot` cannot reach it. Roll back with `pct stop <vmid>`, then
+  `zfs rollback <pool>/subvol-<vmid>-disk-N@<name>` for EVERY dataset you snapshotted, copy the
+  saved config back if `diff /root/<vmid>.conf.<name> /etc/pve/lxc/<vmid>.conf` shows the change
+  edited it, and `pct start <vmid>`. `zfs rollback` refuses while a newer snapshot of that dataset
+  exists (list them: `zfs list -H -t snapshot -o name | grep '/subvol-<vmid>-disk-'`); `-r` goes
+  through by destroying them, including any a later `pct snapshot` took, whose entries then stay
+  in the CT config with no data behind them. In the other direction, Proxmox rolls a ZFS volume
+  back only to its most recent snapshot, so while the raw snapshot exists a `pct rollback` to an
+  older Proxmox snapshot of that CT is refused. Destroy it when you are done with it:
+  `zfs destroy <pool>/subvol-<vmid>-disk-N@<name>`.
+- **`vzdump`: any storage, running or stopped.** See "A pre-change safety net on a build the
+  guard refuses" below; it is a full backup, so going back is a restore, not an instant rollback.
+
 The guard is a content checksum of the upstream Proxmox source (two SEPARATE guards: snapshot
 hashes `Config.pm`+`AbstractConfig.pm`; clone hashes `API2/LXC.pm`). On an **untested** build,
 bind snapshots are refused and clone stays stock. The correct response is NOT to force forever:
@@ -147,7 +192,7 @@ bind snapshots are refused and clone stays stock. The correct response is NOT to
 Which builds count as vetted is decided by the overlay, not from memory: the journal line in
 section 2 tells you about THIS node's build, and
 https://github.com/bitranox/pve-bindsnap/blob/main/docs/compatible-versions.md is the
-authoritative list. As of pve-bindsnap **1.4.0** it holds, for both guards, each
+authoritative list. In pve-bindsnap **1.4.1** it holds, for both guards, each
 **pve-container build from 6.0.18 to 6.1.16** (PVE 9.1 and 9.2) together with the
 `libpve-guest-common-perl` version it shipped with; each row of the list names that pairing.
 The pairing matters because the snapshot checksum also covers `AbstractConfig.pm`, which ships in
@@ -200,16 +245,16 @@ snapshots and in the CT config (`zfs list -t snapshot | grep subvol-<vmid>`).
 
 ## Troubleshooting
 
-| Symptom                                                        | Cause / fix                                                                                                                            |
-|----------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
-| Snapshot button greyed for a bind-mount CT                     | Not installed, or daemons not restarted. Install (section 1), verify (section 2).                                                      |
-| `pct snapshot`: `snapshot feature is not available`            | CLI form of the greyed button: not installed, or daemons not restarted. Install (section 1), verify (section 2).                       |
-| `unable to clone mountpoint 'mpN' (type bind)`                 | Clone override not active: not installed, OR build untested (clone stays stock). Install / get the build vetted (section 5).           |
-| `CT <vmid> is running ... stop ... or BINDSNAP-FORCE-RUNNING`  | Stop the CT, or add `BINDSNAP-FORCE-RUNNING` (section 4).                                                                              |
-| `pve-container <ver> is ... untested ... BINDSNAP-UNSUPPORTED` | Build not in the table. Opt in to TEST and get it vetted (section 5).                                                                  |
-| `on the overlay's known-BAD list ... BLOCKED`                  | Hard block; update pve-container (and libpve-guest-common-perl) or use `zfs snapshot`.                                                 |
-| Clone inherited a data mount it should not have                | Add `BINDSNAP-EXCLUDE: mpN` to the SOURCE CT Notes (section 6).                                                                        |
-| No `pve-bindsnap:` line in the journal                         | Banner only prints from a PVE daemon (not a TTY). Check `journalctl -u pvedaemon -b`; confirm `$APPLIED`/`$CLONE_APPLIED` (section 2). |
+| Symptom                                                       | Cause / fix                                                                                                                            |
+|---------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| Snapshot button greyed for a bind-mount CT                    | Not installed, or daemons not restarted. Install (section 1), verify (section 2).                                                      |
+| `pct snapshot`: `snapshot feature is not available`           | CLI form of the greyed button: not installed, or daemons not restarted. Install (section 1), verify (section 2).                       |
+| `unable to clone mountpoint 'mpN' (type bind)`                | Clone override not active: not installed, OR build untested (clone stays stock). Install / get the build vetted (section 5).           |
+| `CT <vmid> is running ... stop ... or BINDSNAP-FORCE-RUNNING` | Stop the CT, or add `BINDSNAP-FORCE-RUNNING` (section 4).                                                                              |
+| `snapshot gated -- pve-container <ver> is untested`           | Build not in the table. Safety net now: raw `zfs snapshot` or `vzdump` (section 5); else opt in to TEST and get it vetted.             |
+| `on the overlay's known-BAD list ... BLOCKED`                 | Hard block; update pve-container (and libpve-guest-common-perl) or use `zfs snapshot`.                                                 |
+| Clone inherited a data mount it should not have               | Add `BINDSNAP-EXCLUDE: mpN` to the SOURCE CT Notes (section 6).                                                                        |
+| No `pve-bindsnap:` line in the journal                        | Banner only prints from a PVE daemon (not a TTY). Check `journalctl -u pvedaemon -b`; confirm `$APPLIED`/`$CLONE_APPLIED` (section 2). |
 
 ## Further reading
 

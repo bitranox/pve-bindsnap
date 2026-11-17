@@ -18,6 +18,17 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.4.2] - 2026-11-17
+
+### Changed
+
+- The `proxmox-bindsnap` skill offers a safety snapshot on a build the guard refuses
+  (`snapshot gated -- pve-container <ver> is untested`): for a STOPPED container whose managed
+  volumes are all on ZFS, a raw `zfs snapshot` of every managed volume plus a copy of the CT
+  config, with what it costs (not in `pct listsnapshot` or the GUI, manual rollback, and how it
+  interacts with `pct rollback`); `vzdump` for every other case. Its description now names that
+  refusal, so the skill loads when it appears. No code change: the overlay behaves as in 1.4.1.
+
 ## [1.4.1] - 2026-11-16
 
 ### Fixed
