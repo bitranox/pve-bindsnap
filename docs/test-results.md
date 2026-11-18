@@ -269,6 +269,25 @@ on that node and one on another read it active at once. The runner now gives the
 Not covered here: apt following the GitHub `releases/latest/download` redirect (checked on one
 node after the release), and SDN IPAM during a clone.
 
+## 1.5.0: pve-container 6.1.0, 6.1.20, 6.1.23
+
+Run on 2026-11-18 by the automated vetting job: one nested PVE node per build, reset to its clean state before and after every scenario. The negative control runs the previous release's module on the new build, which must refuse it as untested.
+
+| pve-container | libpve-guest-common-perl | PVE    | scenario          | result                                            |
+|---------------|--------------------------|--------|-------------------|---------------------------------------------------|
+| 6.1.0         | 6.0.2                    | 9.1.1  | upgrade to 6.1.0  | 27/27                                             |
+| 6.1.0         | 6.0.2                    | 9.1.1  | deb               | 46/46                                             |
+| 6.1.0         | 6.0.2                    | 9.1.1  | script            | 28/28                                             |
+| 6.1.0         | 6.0.2                    | 9.1.1  | negative          | skipped: origin/main already lists both checksums |
+| 6.1.20        | 6.0.8                    | 9.2.26 | upgrade to 6.1.20 | 27/27                                             |
+| 6.1.20        | 6.0.8                    | 9.2.26 | deb               | 46/46                                             |
+| 6.1.20        | 6.0.8                    | 9.2.26 | script            | 28/28                                             |
+| 6.1.20        | 6.0.8                    | 9.2.26 | negative          | passed: origin/main refuses the build as untested |
+| 6.1.23        | 6.0.9                    | 9.2.30 | upgrade to 6.1.23 | 27/27                                             |
+| 6.1.23        | 6.0.9                    | 9.2.30 | deb               | 46/46                                             |
+| 6.1.23        | 6.0.9                    | 9.2.30 | script            | 28/28                                             |
+| 6.1.23        | 6.0.9                    | 9.2.30 | negative          | passed: origin/main refuses the build as untested |
+
 ## Aftermath
 
 The test CT was restored to its original config (rootfs only, original Notes, no test

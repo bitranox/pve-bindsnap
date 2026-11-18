@@ -18,6 +18,14 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.5.0] - 2026-11-18
+
+### Added
+
+- pve-container 6.1.0 with libpve-guest-common-perl 6.0.2 is vetted: snapshot checksum `9573ba8f9b60dcf6394788a05f06b66a4039b3b6944240188e87895432f865c2`, clone checksum `53656e15e33c7ffc09b5c060a203fd007a51375d7878dfe88a866b1fa121911e` (clone variant `v6_0_19`), E2E-tested on PVE 9.1.1.
+- pve-container 6.1.20 with libpve-guest-common-perl 6.0.8 is vetted: snapshot checksum `9d9b831ad204db6d4cf170a0938c42adb1be209a6a34b2a27886248987a7612e`, clone checksum `42679514db5091382e8d567212b3198542feb31d420b17edeab2fae73a5d2d43` (clone variant `v6_1_7`), E2E-tested on PVE 9.2.26.
+- pve-container 6.1.23 with libpve-guest-common-perl 6.0.9 is vetted: snapshot checksum `a76ef78dd01ce9519ebf666684bd2ce5a7d7662748411ec6f9667958cc253ac9`, clone checksum `62001c402f1c714d59a6d67c7a4b041f3cd1bb6a8d16f855a0ea905ea4767106` (clone variant `v6_1_7`), E2E-tested on PVE 9.2.30.
+
 ## [1.4.3] - 2026-11-18
 
 ### Added
