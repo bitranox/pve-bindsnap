@@ -56,12 +56,31 @@ unlike($blocked, qr/TEST mode/,                     'known-bad line is NOT TEST 
 # _known_good_list: one indented "pve-container <ver>  <checksum>" line per known-good
 # entry (multi-line, for the task-log refusal explanations)
 my $kgl = PVE::LXC::BindSnap->can('_known_good_list') or BAIL_OUT('_known_good_list missing');
-like($kgl->(), qr/pve-container 6\.1\.10/, 'lists the supported version');
-like($kgl->(), qr/1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106/, 'lists its checksum');
-like($kgl->(), qr/pve-container 6\.0\.18  5a7740a4a2c7e1e977740e3ce28811c23fd0f9c657bf15abf6a372c587fcfbcf/,
-     'lists the oldest vetted build');
-like($kgl->(), qr/pve-container 6\.1\.15, 6\.1\.16  3c7e8deb78600666b7462529721d00054b7a41b3b506c798c21a17351ff48998/,
-     'one line names every build sharing a checksum');
+# Assert which builds a row names, never a whole label: every newly vetted build whose
+# checksum an existing row already has is appended to that row's label, so a pinned label
+# breaks the next release.
+my @kgl_lines = split /\n/, $kgl->();
+my @rows = map { /^    pve-container (\S.*?)  ([0-9a-f]{64})$/ ? { builds => [split /, /, $1], sum => $2 } : () }
+    @kgl_lines;
+is(scalar @rows, scalar @kgl_lines, 'every line reads "pve-container <builds>  <checksum>"');
+my %row_of = map { ($_->{sum} => $_) } @rows;
+my $row_names = sub {
+    my ($sum, @builds) = @_;
+    my %has = map { ($_ => 1) } @{ ($row_of{$sum} // { builds => [] })->{builds} };
+    return @builds == grep { $has{$_} } @builds;
+};
+ok($row_names->('1ebb1a44483bfdabed59f421c88003673a283cd83cd4009407ce39219faa6106', '6.1.10'),
+   'lists the supported version with its checksum');
+ok($row_names->('5a7740a4a2c7e1e977740e3ce28811c23fd0f9c657bf15abf6a372c587fcfbcf', '6.0.18'),
+   'lists the oldest vetted build with its checksum');
+ok($row_names->('3c7e8deb78600666b7462529721d00054b7a41b3b506c798c21a17351ff48998', '6.1.15', '6.1.16'),
+   'one line names every build sharing a checksum');
+is(scalar keys %row_of, scalar @rows, 'no checksum is listed on two lines');
+{
+    my %lines_naming;
+    $lines_naming{$_}++ for map { @{ $_->{builds} } } @rows;
+    is_deeply([grep { $lines_naming{$_} > 1 } sort keys %lines_naming], [], 'no build is listed on two lines');
+}
 {
     # Ordered by version, not by string: a string sort puts 6.1.10 before 6.1.2.
     my @first = map { /^\s+pve-container (\d+)\.(\d+)\.(\d+)/ ? [$1, $2, $3] : () } split /\n/, $kgl->();
