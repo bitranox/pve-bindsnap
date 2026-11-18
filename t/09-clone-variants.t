@@ -50,9 +50,23 @@ for (split /\n/, slurp("$FIX/builds.tsv")) {
 }
 cmp_ok(scalar keys %rows, '>=', 20, 'builds.tsv lists every build from 6.0.17 on');
 
+# tools/gen-clone-variants.pl --add makes a new variant for each new upstream body, so the
+# set grows; it must never lose one, and builds.tsv, the fixtures and the modules must
+# name the same set.
 my %variants = map { $_->{var} => 1 } values %rows;
-is_deeply([sort keys %variants], [qw(v6_0_17 v6_0_19 v6_1_3 v6_1_7)],
-          'four distinct upstream clone_vm bodies, one variant each');
+sub names_in {
+    my ($dir, $re) = @_;
+    opendir(my $dh, $dir) or die "open $dir: $!";
+    return [sort map { /$re/ ? $1 : () } readdir $dh];
+}
+my @want_kept = qw(v6_0_17 v6_0_19 v6_1_3 v6_1_7);
+is_deeply([grep { $variants{$_} } @want_kept], \@want_kept, 'every shipped variant is still in builds.tsv');
+is_deeply(names_in($FIX, qr/^(v[\d_]+)\.upstream$/), [sort keys %variants],
+          'one fixture per variant builds.tsv names, and no other');
+is_deeply(names_in($VAR, qr/^(v[\d_]+)\.pm$/), [sort keys %variants],
+          'one variant module per variant builds.tsv names, and no other');
+my %slices = map { $_->{ssum} => 1 } values %rows;
+is(scalar keys %slices, scalar keys %variants, 'one distinct upstream clone_vm body per variant');
 
 for my $var (sort keys %variants) {
     my $file = "$VAR/$var.pm";

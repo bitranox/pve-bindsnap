@@ -12,6 +12,15 @@
 #   tools/gen-clone-variants.pl --check           regenerate the variants from the
 #                                                 committed fixtures, fail on any drift
 #   tools/gen-clone-variants.pl --src DIR --check also re-slice DIR and compare
+#   tools/gen-clone-variants.pl --add DIR         merge the builds in DIR into the
+#                                                 committed builds.tsv and fixtures
+#
+# --src rebuilds builds.tsv from DIR alone, so DIR must hold every build from --min on;
+# a build missing from DIR drops its row, and a variant can be renamed after the oldest
+# build left. --add never drops or renames: rows already in builds.tsv stay as they are,
+# a new build whose clone_vm body is already known joins that body's variant, and only a
+# new body gets a new variant (named after the oldest new build that has it). A build
+# already recorded must come back byte-identical, or --add refuses.
 #
 # DIR holds pve-container builds, either extracted (x-pve-container-<ver>/usr/share/
 # perl5/PVE/API2/LXC.pm) or as pve-container_<ver>_all.deb. Builds older than --min
@@ -37,9 +46,11 @@ my $FIXTURES = "$ROOT/t/fixtures/clone_vm";
 my $OUTDIR   = "$ROOT/lib/PVE/LXC/BindSnap/Clone";
 my $LXC_PM   = 'usr/share/perl5/PVE/API2/LXC.pm';
 
-my ($src, $check, $min) = (undef, 0, '6.0.17');
-GetOptions('src=s' => \$src, 'check' => \$check, 'min=s' => \$min)
-    or die "usage: $0 [--src DIR] [--check] [--min VER]\n";
+my ($src, $add, $check, $min) = (undef, undef, 0, '6.0.17');
+GetOptions('src=s' => \$src, 'add=s' => \$add, 'check' => \$check, 'min=s' => \$min)
+    or die "usage: $0 [--src DIR | --add DIR] [--check] [--min VER]\n";
+die "--add and --src are exclusive: --src rebuilds builds.tsv from DIR, --add merges into it\n"
+    if defined $src && defined $add;
 
 # --- the hunks: the ONLY places a variant differs from upstream ------------------------
 # Each anchor is a whole upstream line that must occur exactly once in the slice.
@@ -174,22 +185,71 @@ sub builds_in {
     return grep { version_key($_) ge version_key($min) } sort { version_key($a) cmp version_key($b) } keys %v;
 }
 
+my $TSV_HEADER = "# build\tlxc_pm_sha256\tclone_checksum\tslice_sha256\tvariant\n";
+
+# One build of DIR: its builds.tsv fields (variant still to be chosen) and its slice.
+sub build_row {
+    my ($dir, $ver) = @_;
+    my $pm    = lxc_pm_of($dir, $ver);
+    my $slice = slice_clone_vm($pm, "pve-container $ver");
+    return { ver => $ver, pm => sha256_hex($pm), csum => clone_checksum($pm),
+             ssum => sha256_hex($slice), slice => $slice };
+}
+
+sub tsv_line { my ($r) = @_; return join("\t", @$r{qw(ver pm csum ssum var)}) . "\n"; }
+
 # Stage 1: upstream builds -> { fixtures => {variant => slice}, tsv => text }.
 sub stage_upstream {
     my ($dir) = @_;
     my (%fixtures, %variant_of_slice, @rows);
     for my $ver (builds_in($dir)) {
-        my $pm    = lxc_pm_of($dir, $ver);
-        my $slice = slice_clone_vm($pm, "pve-container $ver");
-        my $ssum  = sha256_hex($slice);
-        my $var   = $variant_of_slice{$ssum} //= variant_of($ver);
-        $fixtures{$var} = $slice;
-        push @rows, join("\t", $ver, sha256_hex($pm), clone_checksum($pm), $ssum, $var);
+        my $r = build_row($dir, $ver);
+        $r->{var} = $variant_of_slice{ $r->{ssum} } //= variant_of($ver);
+        $fixtures{ $r->{var} } = $r->{slice};
+        push @rows, $r;
     }
     die "no pve-container builds >= $min in $dir\n" if !@rows;
-    my $tsv = "# build\tlxc_pm_sha256\tclone_checksum\tslice_sha256\tvariant\n"
-            . join('', map { "$_\n" } @rows);
-    return { fixtures => \%fixtures, tsv => $tsv };
+    return { fixtures => \%fixtures, tsv => $TSV_HEADER . join('', map { tsv_line($_) } @rows) };
+}
+
+# Stage 1 for --add: the committed fixtures and builds.tsv plus the new builds in DIR.
+# Returns { fixtures, tsv, notes => [lines saying what was added] }.
+sub merge_upstream {
+    my ($dir) = @_;
+    my $fixtures = committed_fixtures();
+    my (%row, %variant_of_slice);
+    for (split /\n/, slurp("$FIXTURES/builds.tsv")) {
+        next if /^#/ || !length;
+        my %r;
+        @r{qw(ver pm csum ssum var)} = split /\t/;
+        $row{ $r{ver} } = \%r;
+        $variant_of_slice{ $r{ssum} } //= $r{var};
+    }
+    my @builds = builds_in($dir);
+    die "no pve-container builds >= $min in $dir\n" if !@builds;
+    my @notes;
+    for my $ver (@builds) {
+        my $r = build_row($dir, $ver);
+        if (my $old = $row{$ver}) {
+            next if !grep { $old->{$_} ne $r->{$_} } qw(pm csum ssum);
+            die "pve-container $ver is already in builds.tsv with a different LXC.pm "
+              . "(recorded $old->{pm}, DIR has $r->{pm}); --add never changes a recorded build\n";
+        }
+        my $var = $variant_of_slice{ $r->{ssum} };
+        my $new = !defined $var;
+        if ($new) {
+            $var = variant_of($ver);
+            die "pve-container $ver has a new clone_vm body, but variant $var already exists with another one\n"
+                if exists $fixtures->{$var};
+            $fixtures->{$var} = $r->{slice};
+            $variant_of_slice{ $r->{ssum} } = $var;
+        }
+        $r->{var} = $var;
+        $row{$ver} = $r;
+        push @notes, "added $ver -> $var" . ($new ? ' (new variant)' : '');
+    }
+    my @rows = map { $row{$_} } sort { version_key($a) cmp version_key($b) } keys %row;
+    return { fixtures => $fixtures, tsv => $TSV_HEADER . join('', map { tsv_line($_) } @rows), notes => \@notes };
 }
 
 sub find_once {
@@ -299,27 +359,33 @@ sub committed_fixtures {
 my @drift;
 sub compare_or_write {
     my ($path, $data) = @_;
+    my $same = -f $path && slurp($path) eq $data;
     if ($check) {
-        push @drift, $path if !-f $path || slurp($path) ne $data;
-    } else {
+        push @drift, $path if !$same;
+    } elsif (!$same) {
         spew($path, $data);
         print "wrote $path\n";
     }
 }
 
-my ($fixtures, $tsv);
-if (defined $src) {
-    my $up = stage_upstream($src);
-    ($fixtures, $tsv) = ($up->{fixtures}, $up->{tsv});
-    compare_or_write("$FIXTURES/$_.upstream", $fixtures->{$_}) for sort keys %$fixtures;
-    compare_or_write("$FIXTURES/builds.tsv", $tsv);
+my ($fixtures, $tsv, $notes);
+if (defined $src || defined $add) {
+    my $up = defined $src ? stage_upstream($src) : merge_upstream($add);
+    ($fixtures, $tsv, $notes) = ($up->{fixtures}, $up->{tsv}, $up->{notes});
 } else {
-    die "without --src only --check is meaningful\n" if !$check;
+    die "without --src or --add only --check is meaningful\n" if !$check;
     ($fixtures, $tsv) = (committed_fixtures(), slurp("$FIXTURES/builds.tsv"));
 }
 
+# Render every variant before anything is written, so a hunk anchor missing from a new
+# build stops the run with the committed files untouched.
 my $variants = variants_from($fixtures, $tsv);
+if (defined $src || defined $add) {
+    compare_or_write("$FIXTURES/$_.upstream", $fixtures->{$_}) for sort keys %$fixtures;
+    compare_or_write("$FIXTURES/builds.tsv", $tsv);
+}
 compare_or_write($_, $variants->{$_}) for sort keys %$variants;
+print "$_\n" for @{ $notes // [] };
 
 if ($check) {
     if (@drift) {

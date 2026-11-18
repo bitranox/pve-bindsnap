@@ -104,13 +104,16 @@ told about the upgrade by a dpkg trigger and prints the new guard state in the a
 
 ### Adding a clone build
 
-1. Put the new `pve-container_<ver>_all.deb` (or its extracted tree) into a directory with
-   the builds already listed in `builds.tsv`, and run
-   `perl tools/gen-clone-variants.pl --src <dir>`. It slices every build's `clone_vm`,
-   writes the fixture and `builds.tsv` rows, and makes a new variant only if the body is new.
-   Every hunk anchor must match exactly once, or it stops and names the anchor.
-2. Add the build's clone checksum (from `builds.tsv`) to `%KNOWN_GOOD_CLONE_CHECKSUMS` with
-   the variant `builds.tsv` names.
+1. Put the new `pve-container_<ver>_all.deb` (or its extracted tree) into a directory and run
+   `perl tools/gen-clone-variants.pl --add <dir>`. It slices the new build's `clone_vm`, adds
+   its `builds.tsv` row, and makes a new fixture and variant only if the body is new. Rows and
+   variants already recorded stay as they are, so the directory needs only the new builds.
+   Every hunk anchor must match exactly once, or it stops, names the anchor and writes nothing.
+2. Add the build to both known-good tables and to the compatible versions page with
+   `perl tools/add-known-good.pl --container <ver> --guest-common <ver> --pve <ver>
+   --snap <combined sha256> --clone <clone checksum> --variant <variant>`, taking the clone
+   checksum and variant from `builds.tsv`. It merges the version into an existing row's label
+   when the checksum is already listed.
 3. Run `prove -I lib t/`, then vet it on a node: clone a bind-mount CT per the
    [test plan](testing.md).
 
