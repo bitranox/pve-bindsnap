@@ -14,7 +14,7 @@ use strict;
 use warnings;
 
 # =====================================================================
-# pve-bindsnap                                       (1.4.3)
+# pve-bindsnap                                       (1.5.0)
 # ---------------------------------------------------------------------
 # Lets Proxmox snapshot LXC containers that carry bind-/device-mount
 # entries (mpN pointing at host paths), by hiding every non-'volume'
@@ -80,7 +80,7 @@ use warnings;
 # alternative.
 # =====================================================================
 
-our $VERSION = '1.4.3';
+our $VERSION = '1.5.0';
 
 # Upstream files whose byte-content defines the snapshot surface we wrap.
 # foreach_volume_full + snapshot_create/delete/rollback are INHERITED from
@@ -106,7 +106,7 @@ my @GUARDED_FILES = (
 my %KNOWN_GOOD_CHECKSUMS = (
     '5a7740a4a2c7e1e977740e3ce28811c23fd0f9c657bf15abf6a372c587fcfbcf' => '6.0.18',
     '167a8689ef8a3a650c398f4870f916ee724b32bc028549bee780803c63093b37' => '6.0.19',
-    '9573ba8f9b60dcf6394788a05f06b66a4039b3b6944240188e87895432f865c2' => '6.1.1',
+    '9573ba8f9b60dcf6394788a05f06b66a4039b3b6944240188e87895432f865c2' => '6.1.0, 6.1.1',
     '482996dd8c502b390dba6ba3205addf908bf27c9786af749c30c20e806a40eef' => '6.1.2, 6.1.3, 6.1.5',
     '77e70a3803013ba37a1f7b2a5ba6960121968e1a7a4c1df5c6be45ba94bbccd9' => '6.1.6',
     'e963f8e465ca4314691a5695316878b36ba3284242f98abe6b48f54953bb0365' => '6.1.7',
@@ -115,6 +115,8 @@ my %KNOWN_GOOD_CHECKSUMS = (
     '29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f' => '6.1.11, 6.1.12, 6.1.13',
     '04aada64089cbf97d1598ea0b102aa61d38bfd456526be4fff5ce4289e225a77' => '6.1.14',
     '3c7e8deb78600666b7462529721d00054b7a41b3b506c798c21a17351ff48998' => '6.1.15, 6.1.16',
+    '9d9b831ad204db6d4cf170a0938c42adb1be209a6a34b2a27886248987a7612e' => '6.1.20',
+    'a76ef78dd01ce9519ebf666684bd2ce5a7d7662748411ec6f9667958cc253ac9' => '6.1.23',
 );
 
 # Known-BAD table. KEY = combined sha256 (same as above); VALUE = a short reason. A
@@ -152,7 +154,7 @@ my @CLONE_GUARDED_FILES = (
 # bad entry carries a reason. Only the checksum decides.
 my %KNOWN_GOOD_CLONE_CHECKSUMS = (
     '97d08a12e39ec4a561c639624e40c447e726f05bdfc46778292c30a9e35c8fd8' => { label => '6.0.18', variant => 'v6_0_17' },
-    '53656e15e33c7ffc09b5c060a203fd007a51375d7878dfe88a866b1fa121911e' => { label => '6.0.19, 6.1.1, 6.1.2', variant => 'v6_0_19' },
+    '53656e15e33c7ffc09b5c060a203fd007a51375d7878dfe88a866b1fa121911e' => { label => '6.0.19, 6.1.0, 6.1.1, 6.1.2', variant => 'v6_0_19' },
     'd483d5ce01afcd0634fba57c3fcbb9d2396e5447806b950d5ea450285ad14f6b' => { label => '6.1.3', variant => 'v6_1_3' },
     'b63d3fdda3cb82f35e3f221f85b47b4943eb907b959f3398fdfad1b58bbb1372' => { label => '6.1.5, 6.1.6', variant => 'v6_1_3' },
     '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198' => { label => '6.1.7, 6.1.9, 6.1.10, 6.1.11', variant => 'v6_1_7' },
@@ -160,6 +162,8 @@ my %KNOWN_GOOD_CLONE_CHECKSUMS = (
     '2ea44bdd7dd321e593b0ede65d0a8b01126fff733bb0591da84a4656a43b635a' => { label => '6.1.14', variant => 'v6_1_7' },
     '892c3fcda6e70abbae33ee93c01393f0f36f9899b3e74954825943525d8400dd' => { label => '6.1.15', variant => 'v6_1_7' },
     'ed915d4f9d205a460379a0f0746434eba6cbaf331759eeb76202e47a5caf1947' => { label => '6.1.16', variant => 'v6_1_7' },
+    '42679514db5091382e8d567212b3198542feb31d420b17edeab2fae73a5d2d43' => { label => '6.1.20', variant => 'v6_1_7' },
+    '62001c402f1c714d59a6d67c7a4b041f3cd1bb6a8d16f855a0ea905ea4767106' => { label => '6.1.23', variant => 'v6_1_7' },
 );
 
 my %KNOWN_BAD_CLONE_CHECKSUMS = (
