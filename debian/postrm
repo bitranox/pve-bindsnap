@@ -1,9 +1,10 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # pve-bindsnap postrm: dpkg has already removed this package's wrappers, so move each
-# genuine upstream module back from <file>.distrib to its real path, then reload the PVE
-# daemons onto the stock code. Not on upgrade or abort-upgrade: the diverts stay for the
-# version that remains installed.
+# genuine upstream module back from <file>.distrib to its real path, then have the PVE
+# daemons reloaded once onto the stock code (by pve-manager's trigger when it runs, else
+# here). Not on upgrade or abort-upgrade: the diverts stay for the version that remains
+# installed.
 set -e
 
 SERVICES="pvedaemon pveproxy pvestatd"
@@ -12,13 +13,48 @@ undivert() {
     dpkg-divert --package pve-bindsnap --remove --rename --divert "$1.distrib" "$1"
 }
 
+reload_daemons() {
+    [ -d "${DPKG_ROOT:-}/run/systemd/system" ] || return 0
+    # shellcheck disable=SC2086 # SERVICES is a word list on purpose
+    systemctl reload-or-try-restart $SERVICES || true
+}
+
+# pve-manager has a file trigger on /usr/share/perl5/PVE and reloads the PVE daemons from it
+# (reload-or-try-restart) after every dpkg run that changes a file there: this package's own
+# install, upgrade and removal, and every pve-container upgrade that fires this package's
+# trigger. A second reload of ours a moment later can catch pveproxy mid-restart, and systemd
+# then loses its main process and leaves it stopped. So the scripts reload only when that
+# trigger will not: no pve-manager, its trigger not part of this dpkg run (dpkg-reconfigure),
+# or one of the two conditions under which its trigger exits without reloading.
+PVE_TREE=/usr/share/perl5/PVE
+
+pve_manager_skips_reload() {
+    [ -f "${DPKG_ROOT:-}/etc/pve/local/pve-ssl.pem" ] || return 0
+    [ -e "${DPKG_ROOT:-}/proxmox_install_mode" ]
+}
+
+# dpkg records the activated trigger on pve-manager before this script runs and clears it
+# once pve-manager has processed it. dpkg-query honours DPKG_ADMINDIR.
+pve_manager_reload_pending() {
+    # shellcheck disable=SC2016
+    pending="$(dpkg-query -W -f='${Triggers-Pending}' pve-manager 2>/dev/null)" || return 1
+    case " $pending " in
+    *" $PVE_TREE "*) ;;
+    *) return 1 ;;
+    esac
+    ! pve_manager_skips_reload
+}
+
 case "$1" in
 remove | abort-install | disappear)
     undivert /usr/share/perl5/PVE/LXC/Config.pm
     undivert /usr/share/perl5/PVE/API2/LXC.pm
-    if [ -d /run/systemd/system ]; then
-        # shellcheck disable=SC2086 # SERVICES is a word list on purpose
-        systemctl reload-or-try-restart $SERVICES || true
+    # Only a removal is known to have changed files under the tree in this run; an aborted
+    # install or a disappearance may not have, so those keep their own reload.
+    if [ "$1" = remove ] && pve_manager_reload_pending; then
+        echo "pve-bindsnap: the PVE daemons are reloaded by pve-manager's trigger."
+    else
+        reload_daemons
     fi
     ;;
 esac

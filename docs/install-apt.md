@@ -65,20 +65,24 @@ the repository with `install-apt.sh`.
   as it stands.
 - The payload puts the overlay and its clone variants in `/usr/share/perl5/PVE/LXC/` and the
   two thin wrappers at the diverted paths.
-- **postinst** checks that both wrappers load, then runs
+- **postinst** checks that both wrappers load and prints the guard state, for example
+  `clone overlay active (... clone_vm variant v6_1_7)`. The daemons are then reloaded once with
   `systemctl reload-or-try-restart pvedaemon pveproxy pvestatd` (the graceful form Proxmox's
-  own packages use, so an upgrade started from the GUI is not cut off) and prints the guard
-  state, for example `clone overlay active (... clone_vm variant v6_1_7)`. If the check fails,
-  the daemons are not reloaded and the configure step fails; the wrappers fall back to stock
-  on their own, so Proxmox keeps working.
+  own packages use, so an upgrade started from the GUI is not cut off). pve-manager's own dpkg
+  trigger on `/usr/share/perl5/PVE` does that reload after the same apt run, so postinst only
+  reloads when that trigger does not run (no pve-manager, `dpkg-reconfigure`, a node without its
+  cluster certificate, or install mode); two reloads in quick succession can leave pveproxy
+  stopped. If the check fails, postinst reloads nothing itself and the configure step fails;
+  the wrappers fall back to stock on their own, so Proxmox keeps working.
 - **postrm** (remove or purge) removes both diverts, which puts the upstream files back, and
-  reloads the daemons.
+  the daemons are reloaded once in the same way.
 
 ## Proxmox upgrades
 
 The package registers a dpkg trigger on Proxmox's container code. When an upgrade replaces it
 (the new upstream file lands at the diverted `.distrib` path, the wrapper stays), the trigger
-re-checks the load, reloads the daemons and prints the new guard state in the apt output: still
+re-checks the load, has the daemons reloaded once (by pve-manager's trigger, which the same
+upgrade fires) and prints the new guard state in the apt output: still
 validated with the variant it now uses, or TEST mode and clone stock on a build that is not
 vetted yet. A failed check there only warns; the upgrade itself is never failed.
 

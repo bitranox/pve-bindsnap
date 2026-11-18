@@ -18,6 +18,20 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [Unreleased]
+
+### Fixed
+
+- A deb install, upgrade or removal reloaded the PVE daemons twice about two seconds apart:
+  once from this package's maintainer script and once from pve-manager's file trigger on
+  `/usr/share/perl5/PVE`. The second reload could catch pveproxy mid-restart, and systemd then
+  left it stopped, so the web GUI stayed down until pveproxy was started by hand. The scripts
+  now leave the reload to pve-manager's trigger when it runs in the same dpkg run, and reload
+  themselves only when it does not (no pve-manager, `dpkg-reconfigure`, a node without its
+  cluster certificate, or install mode). The same applies when a pve-container upgrade fires
+  this package's trigger. `install.sh` and `uninstall.sh` are unchanged: they restart the
+  daemons once and fire no trigger.
+
 ## [1.6.0] - 2026-11-18
 
 ### Added

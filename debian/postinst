@@ -1,9 +1,10 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# pve-bindsnap postinst: check that the overlay loads through the wrappers, then reload
-# the PVE daemons so they pick it up, and print the guard state into the apt log.
+# pve-bindsnap postinst: check that the overlay loads through the wrappers, have the PVE
+# daemons reloaded once so they pick it up (by pve-manager's trigger when it runs, else
+# here), and print the guard state into the apt log.
 #   configure -- after install/upgrade of this package. A failed check exits non-zero
-#                and reloads nothing: the wrappers load the overlay eval-guarded, so the
+#                and reloads nothing itself: the wrappers load the overlay eval-guarded, so the
 #                node keeps stock behaviour, and apt reports the package unconfigured.
 #   triggered -- after pve-container or libpve-guest-common-perl changed the upstream
 #                code (see the triggers file). A failed check only WARNS: the node is
@@ -34,9 +35,47 @@ report() {
 # re-exec on reload, so a GUI-started apt run is not cut off, and a stopped daemon stays
 # stopped. Skipped outside a running systemd (chroot, image build).
 reload_daemons() {
-    [ -d /run/systemd/system ] || return 0
+    [ -d "${DPKG_ROOT:-}/run/systemd/system" ] || return 0
     # shellcheck disable=SC2086 # SERVICES is a word list on purpose
     systemctl reload-or-try-restart $SERVICES || true
+}
+
+# pve-manager has a file trigger on /usr/share/perl5/PVE and reloads the PVE daemons from it
+# (reload-or-try-restart) after every dpkg run that changes a file there: this package's own
+# install, upgrade and removal, and every pve-container upgrade that fires this package's
+# trigger. A second reload of ours a moment later can catch pveproxy mid-restart, and systemd
+# then loses its main process and leaves it stopped. So the scripts reload only when that
+# trigger will not: no pve-manager, its trigger not part of this dpkg run (dpkg-reconfigure),
+# or one of the two conditions under which its trigger exits without reloading.
+PVE_TREE=/usr/share/perl5/PVE
+
+pve_manager_skips_reload() {
+    [ -f "${DPKG_ROOT:-}/etc/pve/local/pve-ssl.pem" ] || return 0
+    [ -e "${DPKG_ROOT:-}/proxmox_install_mode" ]
+}
+
+# dpkg records the activated trigger on pve-manager before this script runs and clears it
+# once pve-manager has processed it. dpkg-query honours DPKG_ADMINDIR.
+pve_manager_reload_pending() {
+    # shellcheck disable=SC2016
+    pending="$(dpkg-query -W -f='${Triggers-Pending}' pve-manager 2>/dev/null)" || return 1
+    case " $pending " in
+    *" $PVE_TREE "*) ;;
+    *) return 1 ;;
+    esac
+    ! pve_manager_skips_reload
+}
+
+# Whether pve-manager's interest in the whole tree is registered. Used from this package's
+# own trigger, whose paths lie under that tree: pve-manager's trigger fires in the same run,
+# and may already have run, so its pending state cannot tell.
+pve_manager_watches_tree() {
+    grep -qxE "$PVE_TREE pve-manager(/noawait)?" "${DPKG_ADMINDIR:-/var/lib/dpkg}/triggers/File" 2>/dev/null || return 1
+    ! pve_manager_skips_reload
+}
+
+left_to_pve_manager() {
+    echo "pve-bindsnap: the PVE daemons are reloaded by pve-manager's trigger."
 }
 
 case "$1" in
@@ -46,7 +85,7 @@ configure)
         exit 1
     fi
     report
-    reload_daemons
+    if pve_manager_reload_pending; then left_to_pve_manager; else reload_daemons; fi
     ;;
 triggered)
     if preflight; then
@@ -55,7 +94,7 @@ triggered)
         echo "pve-bindsnap: WARNING -- after this upgrade the overlay does not load;" >&2
         echo "pve-bindsnap: Proxmox runs stock. Please report it: https://github.com/bitranox/pve-bindsnap/issues" >&2
     fi
-    reload_daemons
+    if pve_manager_watches_tree; then left_to_pve_manager; else reload_daemons; fi
     ;;
 esac
 
