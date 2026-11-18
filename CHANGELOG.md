@@ -18,6 +18,31 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.4.3] - 2026-11-18
+
+### Added
+
+- `tools/add-known-good.pl` adds a vetted pve-container build to both guard tables in
+  `lib/PVE/LXC/BindSnap.pm` and to their mirror in `docs/compatible-versions.md`: a new checksum
+  gets a new row, a checksum that already has one gets the version merged into its label. It
+  refuses a checksum on a known-BAD table and a clone row that disagrees with
+  `t/fixtures/clone_vm/builds.tsv`, and never writes the bad tables. Tested by
+  `t/11-add-known-good.t`.
+- `tools/gen-clone-variants.pl --add DIR` merges new builds into the committed `builds.tsv` and
+  fixtures without dropping or renaming a row or variant: a build whose `clone_vm` body is known
+  joins that body's variant, and only a new body gets a new variant. Tested by
+  `t/12-clone-variants-add.t`.
+- `t/13-version-sync.t` checks that `plugin.json` and the version `tools/build-deb.sh` stamps into
+  the .deb both equal the module's `$VERSION`.
+
+### Changed
+
+- `tools/gen-clone-variants.pl` renders every variant before it writes any file, so a missing hunk
+  anchor stops the run with the committed files untouched, and an unchanged file is not rewritten.
+- The README, `docs/checksum-guard.md` and the `proxmox-bindsnap` skill name no vetted range: they
+  point at `docs/compatible-versions.md`, and the skill says a node accepts only the rows its
+  installed pve-bindsnap release holds. No change to the overlay's behaviour.
+
 ## [1.4.2] - 2026-11-17
 
 ### Changed
