@@ -149,8 +149,8 @@ combined hash. To get that version supported:
 `29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f` (per file:
 `Config.pm` `5d661402...e9ffdb2c`, `AbstractConfig.pm` `70432cce...61871494`, from
 libpve-guest-common-perl 6.0.5). Every node in a cluster on the same package versions
-shares those exact bytes, so one entry covers the whole cluster at that version. Since
-1.3.0 the tables hold each pve-container build from 6.0.18 to 6.1.16 with the
+shares those exact bytes, so one entry covers the whole cluster at that version. The
+tables hold each vetted pve-container build with the
 libpve-guest-common-perl version it shipped with; the full list, with that pairing per row, is
 [compatible versions](compatible-versions.md).
 
