@@ -83,6 +83,21 @@ isnt($newbody, $v617, 'the synthetic new body differs from v6_1_7');
 
 my $dir    = fresh_tree();
 my %before = %{ tree_state($dir) };
+
+# The tree is a copy of the repo's LIVE fixtures, which gain builds and variants with every
+# vetted release, so no expectation names a real build or counts the real variants: they
+# are read from the tree. The synthetic builds are 9.9.x, above every real one.
+sub header_builds {
+    my ($module) = @_;
+    my ($list) = $module =~ /^# Upstream's clone_vm method .* as shipped in pve-container\n#   (.+)$/m;
+    return defined $list ? [split /, /, $list] : undef;
+}
+my @variants   = sort map { m{^\Q$FIX\E/(v[\d_]+)\.upstream$} ? $1 : () } keys %before;
+my @real_tsv   = grep { !/^#/ && length } split /\n/, $before{"$FIX/builds.tsv"};
+my @real_build = map { (split /\t/)[0] } @real_tsv;
+ok(!grep({ my @v = split /\./; $v[0] > 9 || ($v[0] == 9 && $v[1] >= 9) } @real_build),
+   'every real build sorts below the synthetic 9.9.x ones');
+ok(defined header_builds($before{"$VAR/v6_1_7.pm"}), 'the v6_1_7 module header lists its builds');
 my $src    = tempdir(CLEANUP => 1);
 spew("$src/x-pve-container-9.9.1/$LXC", lxc_pm('9.9.1', $v617));
 spew("$src/x-pve-container-9.9.2/$LXC", lxc_pm('9.9.2', $newbody));
@@ -122,16 +137,17 @@ if ($have_deb) {
     my %after = %{ tree_state($dir) };
     is($after{"$FIX/v9_9_2.upstream"}, $newbody, 'new fixture is the new upstream slice');
     ok(exists $after{"$VAR/v9_9_2.pm"}, 'new variant module generated');
-    for my $v (qw(v6_0_17 v6_0_19 v6_1_3 v6_1_7)) {
+    for my $v (@variants) {
         is($after{"$FIX/$v.upstream"}, $before{"$FIX/$v.upstream"}, "$v fixture unchanged");
         ok(exists $after{"$VAR/$v.pm"}, "$v variant module kept");
     }
-    like($after{"$VAR/v6_1_7.pm"}, qr/^#   6\.1\.7, .*, 6\.1\.16, 9\.9\.1$/m,
-         'v6_1_7 module header now lists 9.9.1 among its builds');
+    is_deeply(header_builds($after{"$VAR/v6_1_7.pm"}), [@{ header_builds($before{"$VAR/v6_1_7.pm"}) }, '9.9.1'],
+              'v6_1_7 module header now lists 9.9.1 after its real builds');
 
     my ($crc, $cout, $cerr) = run_gen($dir, '--check');
     is($crc, 0, '--check passes after --add') or diag $cerr;
-    like($cout, qr/OK: 5 variant/, '--check sees five variants');
+    my $want = @variants + 1;
+    like($cout, qr/OK: $want variant/, "--check sees the real variants plus the new one ($want)");
 
     my $t09 = `'$^X' -I'$dir/lib' '$dir/t/09-clone-variants.t' 2>&1`;
     is($?, 0, 't/09-clone-variants.t passes on the tree with a new variant') or diag $t09;
@@ -158,8 +174,8 @@ sub refused {
     is_deeply(tree_state($d), \%pre, "$name: nothing written");
 }
 
-refused('a known build with different content', ['6.1.16', lxc_pm('6.1.16', $v617)],
-        qr/6\.1\.16.*already in builds\.tsv/);
+refused('a known build with different content', [$real_build[-1], lxc_pm($real_build[-1], $v617)],
+        qr/\Q$real_build[-1]\E.*already in builds\.tsv/);
 refused('a new body missing a hunk anchor', ['9.9.4', lxc_pm('9.9.4', $newbody =~ s/^        my \$running;\n//mr)],
         qr/anchor found 0 times/);
 

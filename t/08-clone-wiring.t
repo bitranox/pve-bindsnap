@@ -54,7 +54,10 @@ is($B->can('_clone_disposition')->('net0', undef, {}),    'copy-other', 'netN is
 is($B->can('_clone_disposition')->('hostname', undef, {}), 'copy-other', 'a non-mountpoint option is copied as-is');
 
 # === _clone_code_for loads a per-build variant and returns an installable coderef ===
-for my $v (qw(v6_0_17 v6_0_19 v6_1_3 v6_1_7)) {
+# every variant module the tree ships, so one a release adds is covered too
+my @shipped = sort map { m{/(v[\d_]+)\.pm$} ? $1 : () } glob("$FindBin::Bin/../lib/PVE/LXC/BindSnap/Clone/*.pm");
+cmp_ok(scalar @shipped, '>=', 4, 'the tree ships its clone_vm variant modules');
+for my $v (@shipped) {
     is(ref($B->can('_clone_code_for')->($v)), 'CODE', "_clone_code_for('$v') returns a CODE ref for clone_vm {code}");
 }
 ok(!eval { $B->can('_clone_code_for')->('v9_9_9'); 1 },      'an unknown variant dies (apply_clone then stays stock)');
