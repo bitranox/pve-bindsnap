@@ -192,16 +192,18 @@ bind snapshots are refused and clone stays stock. The correct response is NOT to
 Which builds count as vetted is decided by the overlay, not from memory: the journal line in
 section 2 tells you about THIS node's build, and
 https://github.com/bitranox/pve-bindsnap/blob/main/docs/compatible-versions.md is the
-authoritative list. In pve-bindsnap **1.4.1** it holds, for both guards, each
-**pve-container build from 6.0.18 to 6.1.16** (PVE 9.1 and 9.2) together with the
-`libpve-guest-common-perl` version it shipped with; each row of the list names that pairing.
+authoritative list for both guards. Read the builds off that page, never from a range quoted
+elsewhere: each row names the pve-container build(s) together with the `libpve-guest-common-perl`
+version it was vetted with.
 The pairing matters because the snapshot checksum also covers `AbstractConfig.pm`, which ships in
 `libpve-guest-common-perl` rather than in `pve-container`, so an apt upgrade of EITHER package
 can move a node into TEST mode. The reverse holds too: a build newer than the top of that list is
 not untested on that ground alone. The overlay keys on the checksum of the guarded files, never on
 the version, so a later build whose guarded files did not change validates as `checksum-validated`,
 each guard on its own, with no new row. Judge a node from its journal line, never by comparing its
-version with the list.
+version with the list. The page can also list rows the node's INSTALLED pve-bindsnap release does
+not hold yet; the node accepts only what its installed release holds, so update pve-bindsnap
+(section 1: `apt-get upgrade` for the package, re-run `install.sh` for the script) to pick them up.
 
 A **known-BAD** build is a hard block: `BINDSNAP-UNSUPPORTED` will NOT override it; update
 pve-container (and libpve-guest-common-perl, whose `AbstractConfig.pm` the snapshot checksum also
