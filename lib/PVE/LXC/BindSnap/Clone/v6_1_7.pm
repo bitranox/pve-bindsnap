@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # Upstream's clone_vm method (PVE/API2/LXC.pm) as shipped in pve-container
-#   6.1.7, 6.1.8, 6.1.9, 6.1.10, 6.1.11, 6.1.12, 6.1.13, 6.1.14, 6.1.15, 6.1.16, 6.1.20, 6.1.23
+#   6.1.7, 6.1.8, 6.1.9, 6.1.10, 6.1.11, 6.1.12, 6.1.13, 6.1.14, 6.1.15, 6.1.16, 6.1.18, 6.1.19, 6.1.20, 6.1.23
 # Verbatim between the UPSTREAM markers except for the fenced "BINDSNAP" hunks; each
 # replaced upstream line is kept inside its fence as "#| <line>". It is compiled in
 # package PVE::API2::LXC so every name upstream imports resolves exactly as there.
