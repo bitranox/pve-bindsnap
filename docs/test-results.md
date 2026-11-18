@@ -288,6 +288,38 @@ Run on 2026-11-18 by the automated vetting job: one nested PVE node per build, r
 | 6.1.23        | 6.0.9                    | 9.2.30 | script            | 28/28                                             |
 | 6.1.23        | 6.0.9                    | 9.2.30 | negative          | passed: origin/main refuses the build as untested |
 
+## 1.6.0: pve-container 6.1.4, 6.1.8, 6.1.12, 6.1.18, 6.1.19, 6.1.24
+
+Run on 2026-11-18 by the automated vetting job: one nested PVE node per build, reset to its clean state before and after every scenario. The negative control runs the previous release's module on the new build, which must refuse it as untested.
+
+| pve-container | libpve-guest-common-perl | PVE    | scenario          | result                                            |
+|---------------|--------------------------|--------|-------------------|---------------------------------------------------|
+| 6.1.4         | 6.0.2                    | 9.1.1  | upgrade to 6.1.4  | 25/25                                             |
+| 6.1.4         | 6.0.2                    | 9.1.1  | deb               | 46/46                                             |
+| 6.1.4         | 6.0.2                    | 9.1.1  | script            | 28/28                                             |
+| 6.1.4         | 6.0.2                    | 9.1.1  | negative          | skipped: origin/main already lists both checksums |
+| 6.1.8         | 6.0.3                    | 9.1.1  | upgrade to 6.1.8  | 25/25                                             |
+| 6.1.8         | 6.0.3                    | 9.1.1  | deb               | 46/46                                             |
+| 6.1.8         | 6.0.3                    | 9.1.1  | script            | 28/28                                             |
+| 6.1.8         | 6.0.3                    | 9.1.1  | negative          | skipped: origin/main already lists both checksums |
+| 6.1.12        | 6.0.5                    | 9.2.2  | upgrade to 6.1.12 | 25/25                                             |
+| 6.1.12        | 6.0.5                    | 9.2.2  | deb               | 46/46                                             |
+| 6.1.12        | 6.0.5                    | 9.2.2  | script            | 28/28                                             |
+| 6.1.12        | 6.0.5                    | 9.2.2  | negative          | skipped: origin/main already lists both checksums |
+| 6.1.18        | 6.0.6                    | 9.2.26 | upgrade to 6.1.18 | 25/25                                             |
+| 6.1.18        | 6.0.6                    | 9.2.26 | deb               | 46/46                                             |
+| 6.1.18        | 6.0.6                    | 9.2.26 | script            | 28/28                                             |
+| 6.1.18        | 6.0.6                    | 9.2.26 | negative          | skipped: origin/main already lists both checksums |
+| 6.1.19        | 6.0.7                    | 9.2.22 | upgrade to 6.1.19 | 25/25                                             |
+| 6.1.19        | 6.0.7                    | 9.2.22 | deb               | 46/46                                             |
+| 6.1.19        | 6.0.7                    | 9.2.22 | script            | 28/28                                             |
+| 6.1.19        | 6.0.7                    | 9.2.22 | negative          | passed: origin/main refuses the build as untested |
+| 6.1.24        | 6.0.10                   | 9.2.30 | upgrade to 6.1.24 | 25/25                                             |
+| 6.1.24        | 6.0.10                   | 9.2.30 | deb               | 46/46                                             |
+| 6.1.24        | 6.0.10                   | 9.2.30 | migrate           | 28/28                                             |
+| 6.1.24        | 6.0.10                   | 9.2.30 | script            | 28/28                                             |
+| 6.1.24        | 6.0.10                   | 9.2.30 | negative          | passed: origin/main refuses the build as untested |
+
 ## Aftermath
 
 The test CT was restored to its original config (rootfs only, original Notes, no test

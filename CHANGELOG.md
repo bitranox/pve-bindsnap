@@ -18,6 +18,17 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.6.0] - 2026-11-18
+
+### Added
+
+- pve-container 6.1.4 with libpve-guest-common-perl 6.0.2 is vetted: snapshot checksum `482996dd8c502b390dba6ba3205addf908bf27c9786af749c30c20e806a40eef`, clone checksum `b63d3fdda3cb82f35e3f221f85b47b4943eb907b959f3398fdfad1b58bbb1372` (clone variant `v6_1_3`), E2E-tested on PVE 9.1.1.
+- pve-container 6.1.8 with libpve-guest-common-perl 6.0.3 is vetted: snapshot checksum `9edba4fe051f05bb8b2b3634e0aeb707649b8a8a987e88e443cbf58178a1e9dd`, clone checksum `8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198` (clone variant `v6_1_7`), E2E-tested on PVE 9.1.1.
+- pve-container 6.1.12 with libpve-guest-common-perl 6.0.5 is vetted: snapshot checksum `29dc5ce7b561e9306a837380d372c7212690dd827611d09632988def1bce914f`, clone checksum `1ace1c4de506b79bf165f2c5aeaa8d8c4af35b6a9d91ce1ea24e5742f7e7afc7` (clone variant `v6_1_7`), E2E-tested on PVE 9.2.2.
+- pve-container 6.1.18 with libpve-guest-common-perl 6.0.6 is vetted: snapshot checksum `3c7e8deb78600666b7462529721d00054b7a41b3b506c798c21a17351ff48998`, clone checksum `ed915d4f9d205a460379a0f0746434eba6cbaf331759eeb76202e47a5caf1947` (clone variant `v6_1_7`), E2E-tested on PVE 9.2.26.
+- pve-container 6.1.19 with libpve-guest-common-perl 6.0.7 is vetted: snapshot checksum `e8f9640cb09157559a6a346f18398db298ab901d0408c75990be86c2ef041ca3`, clone checksum `ed915d4f9d205a460379a0f0746434eba6cbaf331759eeb76202e47a5caf1947` (clone variant `v6_1_7`), E2E-tested on PVE 9.2.22.
+- pve-container 6.1.24 with libpve-guest-common-perl 6.0.10 is vetted: snapshot checksum `0dc137fb56fac17c2bfe71dc2d51155dbabc2383f94fbdfb940d163c9e14940e`, clone checksum `e307ed89228aa05acd5b37968734ce8651c285141ea877fec440d412ed4d3b8d` (clone variant `v6_1_24`), E2E-tested on PVE 9.2.30.
+
 ## [1.5.0] - 2026-11-18
 
 ### Added
