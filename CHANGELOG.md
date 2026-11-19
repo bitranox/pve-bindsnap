@@ -20,6 +20,17 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 
 ## [Unreleased]
 
+### Changed
+
+- The `proxmox-bindsnap` skill's safety snapshot on a build the guard refuses also covers a
+  RUNNING container whose managed volumes are all on ZFS: one script on the node maps the managed
+  volumes, copies the CT config, freezes the container with `lxc-freeze`, takes ONE `zfs snapshot`
+  of every volume and thaws it from an EXIT trap, the same freeze, snapshot and thaw stock
+  `pct snapshot` does for a running container. The skill states it is crash-consistent (a
+  truncate-then-write file was caught empty on a test node) and keeps `vzdump` for a managed
+  volume on other storage. It also says the guard gates only creating a snapshot:
+  `pct delsnapshot` and `pct rollback` of an existing snapshot run on any build. No code change.
+
 ### Fixed
 
 - A deb install, upgrade or removal reloaded the PVE daemons twice about two seconds apart:

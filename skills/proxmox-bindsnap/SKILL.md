@@ -25,9 +25,10 @@ each command with `ssh root@<node>`. All `pct`/`journalctl`/`perl` commands belo
 - You want to clone a bind-mount CT and control whether the copy inherits the bind mounts.
 
 **Not for:** containers without bind/device mounts (they already snapshot/clone stock -- the
-overlay never touches them). If you need a snapshot of a STOPPED CT whose managed volumes are
-ALL on ZFS, and not the GUI/scheduler, a plain `zfs snapshot` of every one of them is simpler and
-needs none of this (how, and what it costs: section 5, "A safety snapshot NOW").
+overlay never touches them). If you need a snapshot of a CT whose managed volumes are ALL on ZFS,
+and not the GUI/scheduler, a plain `zfs snapshot` of every one of them (inside `lxc-freeze` for a
+running CT) is simpler and needs none of this (how, and what it costs: section 5, "A safety
+snapshot NOW").
 
 ## 1. Install
 
@@ -91,16 +92,17 @@ perl -e 'require PVE::LXC::Config; require PVE::API2::LXC;
 
 ## 3. Decision quick reference
 
-| Situation                                      | Do this                                                            |
-|------------------------------------------------|--------------------------------------------------------------------|
-| Snapshot a STOPPED bind-mount CT, tested build | Just `pct snapshot <vmid> <name>`                                  |
-| Snapshot a RUNNING CT                          | Add `BINDSNAP-FORCE-RUNNING` (section 4)                           |
-| Safety net NOW, stopped CT, all volumes on ZFS | Raw `zfs snapshot` of every managed volume (section 5)             |
-| Safety net NOW, any other case                 | `vzdump <vmid> --storage <store>`, snapshot mode (section 5)       |
-| Build shows TEST mode / untested               | Opt in with `BINDSNAP-UNSUPPORTED`, then get it vetted (section 5) |
-| Keep a managed data disk out of the snapshot   | `BINDSNAP-EXCLUDE: mpN` in CT Notes (section 4)                    |
-| Clone a bind-mount CT                          | `pct clone` works; binds are carried (section 6)                   |
-| Clone must NOT inherit a bind/data mount       | `BINDSNAP-EXCLUDE: mpN` in the SOURCE CT Notes                     |
+| Situation                                      | Do this                                                                              |
+|------------------------------------------------|--------------------------------------------------------------------------------------|
+| Snapshot a STOPPED bind-mount CT, tested build | Just `pct snapshot <vmid> <name>`                                                    |
+| Snapshot a RUNNING CT                          | Add `BINDSNAP-FORCE-RUNNING` (section 4)                                             |
+| Safety net NOW, stopped CT, all volumes on ZFS | Raw `zfs snapshot` of every managed volume (section 5)                               |
+| Safety net NOW, running CT, all volumes on ZFS | `lxc-freeze`, ONE `zfs snapshot` of every managed volume, `lxc-unfreeze` (section 5) |
+| Safety net NOW, a managed volume not on ZFS    | `vzdump <vmid> --storage <store>`, snapshot mode (section 5)                         |
+| Build shows TEST mode / untested               | Opt in with `BINDSNAP-UNSUPPORTED`, then get it vetted (section 5)                   |
+| Keep a managed data disk out of the snapshot   | `BINDSNAP-EXCLUDE: mpN` in CT Notes (section 4)                                      |
+| Clone a bind-mount CT                          | `pct clone` works; binds are carried (section 6)                                     |
+| Clone must NOT inherit a bind/data mount       | `BINDSNAP-EXCLUDE: mpN` in the SOURCE CT Notes                                       |
 
 ## 4. Configure: the BINDSNAP- markers
 
@@ -140,24 +142,27 @@ host data outside Proxmox storage; stock Proxmox never versions it either.)
 bind-mount CT exits 255 with `pve-bindsnap: snapshot gated -- pve-container <ver> is untested`,
 then `add BINDSNAP-UNSUPPORTED or update pve-container` (a known-BAD build says
 `snapshot BLOCKED`). The refusal comes before any snapshot is taken, so it leaves no ZFS snapshot
-or config entry behind. Two routes run no overlay snapshot code at all; offer them before
+or config entry behind. The gate covers creating a snapshot only: `pct delsnapshot` (CT running
+or stopped) and `pct rollback` (which stops the CT itself) of a snapshot that already exists run
+on any build. Two routes run no overlay snapshot code at all; offer them before
 `BINDSNAP-UNSUPPORTED`. The refusal and its exit code are the overlay's (seen on
 pve-container 6.1.20 with overlay 1.4.1); the ZFS and Proxmox behaviour below is from their
-documentation and source, not from an overlay test.
+documentation and source, except the running-CT script, which was run on a test node.
 
-- **Raw ZFS snapshot: a STOPPED CT whose managed volumes are all on ZFS.** Instant, and so is its
-  rollback. Check that it applies first:
-  1. `pct status <vmid>` says `stopped`. A running CT gives only a crash-consistent copy: use
-     `vzdump` instead.
+- **Raw ZFS snapshot: a CT whose managed volumes are all on ZFS, stopped or running.** Instant,
+  and so is its rollback, which needs the CT stopped whichever way the snapshot was taken. Check
+  that it applies first:
+  1. `pct status <vmid>`: `stopped` takes steps 2 to 5 below by hand; `running` takes the script
+     under "A RUNNING CT", which does steps 2 to 5 with the CT frozen.
   2. `pct config <vmid>`: each `rootfs` or `mpN` value starting with `/` is a bind mount and each
      `devN` a device; both are host data and in no snapshot either way (snapshot a bind source
      yourself on the host if its data must be kept too). Every other `rootfs`/`mpN` is a managed
      volume `<storage>:<volume>`, and `pvesm status` must show each such storage with type
      `zfspool`. One on `lvmthin`, `dir`, `nfs`, `rbd` or any other type is not covered by this
      route: use `vzdump`.
-  3. Map each managed volume to its dataset:
-     `zfs list -H -t filesystem -o name | grep 'subvol-<vmid>-disk-'` lists them as
-     `<pool>/subvol-<vmid>-disk-N`; keep the ones `pct config` names.
+  3. Map each managed volume to its dataset, the same way the running-CT script does:
+     `zfs list -H -o name "$(pvesm path <storage>:<volume>)"` prints it, usually
+     `<pool>/subvol-<vmid>-disk-N`.
   4. Snapshot ALL of them in one command, with one name no later `pct snapshot` will use (a
      second snapshot of the same name on a dataset is refused). A rootfs-only snapshot misses
      every `mpN` volume:
@@ -165,9 +170,59 @@ documentation and source, not from an overlay test.
   5. Save the CT config, which no ZFS snapshot holds:
      `cp /etc/pve/lxc/<vmid>.conf /root/<vmid>.conf.<name>`
 
-  What it costs: Proxmox does not know about it. It is not in `pct listsnapshot` or the GUI, and
-  `pct rollback` / `pct delsnapshot` cannot reach it. Roll back with `pct stop <vmid>`, then
-  `zfs rollback <pool>/subvol-<vmid>-disk-N@<name>` for EVERY dataset you snapshotted, copy the
+  **A RUNNING CT:** stock `pct snapshot` of a running CT freezes it (cgroup freezer), snapshots
+  each volume and thaws it; for ZFS it adds no filesystem freeze. This script does the same
+  without the overlay's gate. Save it on the node as `freeze-snapshot.sh` and run
+  `bash freeze-snapshot.sh <vmid> <name>` there, as ONE command. From a shell inside the CT
+  itself, copy the script to the node, then start it with ONE ssh call:
+  `scp freeze-snapshot.sh root@<node>:`, then
+  `ssh root@<node> bash freeze-snapshot.sh <vmid> <name>`. Never split the script into
+  separate calls: once the CT is frozen, a session inside it cannot send the next one, and only
+  the trap thaws it.
+
+  ```bash
+  #!/bin/bash
+  set -euo pipefail
+  vmid=${1:?usage: freeze-snapshot.sh <vmid> <name>}
+  snap=${2:?usage: freeze-snapshot.sh <vmid> <name>}
+  # Managed volumes only: a bind mount's source is a host path starting with '/'.
+  datasets=()
+  while read -r vol; do
+      path=$(pvesm path "$vol")
+      ds=$(zfs list -H -o name "$path") || { echo "not on ZFS: $vol" >&2; exit 2; }
+      datasets+=("$ds@$snap")
+  done < <(pct config "$vmid" | sed -n -E 's/^(rootfs|mp[0-9]+): ([^,]+).*/\2/p' | grep -v '^/')
+  [ "${#datasets[@]}" -gt 0 ] || { echo "no managed volume found" >&2; exit 2; }
+  cp "/etc/pve/lxc/$vmid.conf" "/root/$vmid.conf.$snap"
+  trap 'lxc-unfreeze -n "$vmid"' EXIT
+  lxc-freeze -n "$vmid"
+  zfs snapshot "${datasets[@]}"
+  echo "snapshot: ${datasets[*]}"
+  ```
+
+  What the freeze buys, and what it does not:
+  - Every process in the CT stops between system calls, and all volumes are taken in one
+    `zfs snapshot`, so they agree with each other at one instant. A program's own multi-step
+    update is not made whole: on a test node a writer that truncated a file and then wrote it
+    (`echo $i > file`) was caught with that file EMPTY, while one that wrote a temp file and
+    renamed it was caught complete, with the same counter on both volumes. Data a program holds
+    only in memory is not in the snapshot. That is crash-consistent, like a power cut; stop or
+    quiesce the application first when that is not enough.
+  - The freeze can stall on a CT with FUSE or CIFS mounts, the same risk as
+    `BINDSNAP-FORCE-RUNNING` (section 4).
+  - A name already used on any of the datasets makes `zfs snapshot` create nothing at all, and
+    the trap still thaws the CT and the script exits non-zero. The config copy is written
+    before the snapshot and overwrites one saved under the same name, so use a new name each
+    time.
+  - On the test node (pve-container 6.1.24, rootfs plus one volume `mp1`, a writer running) the
+    CT read `FROZEN` during the snapshot and `RUNNING` after, the writer went on after the thaw,
+    and stopping the CT, `zfs rollback` of each volume and starting it restored the snapshot
+    state.
+
+  What a raw snapshot costs, stopped or running: Proxmox does not know about it. It is not in
+  `pct listsnapshot` or the GUI, and `pct rollback` / `pct delsnapshot` cannot reach it. Roll
+  back with `pct stop <vmid>`, then `zfs rollback <pool>/subvol-<vmid>-disk-N@<name>` for EVERY
+  dataset you snapshotted (the script prints them), copy the
   saved config back if `diff /root/<vmid>.conf.<name> /etc/pve/lxc/<vmid>.conf` shows the change
   edited it, and `pct start <vmid>`. `zfs rollback` refuses while a newer snapshot of that dataset
   exists (list them: `zfs list -H -t snapshot -o name | grep '/subvol-<vmid>-disk-'`); `-r` goes
