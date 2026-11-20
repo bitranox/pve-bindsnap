@@ -77,9 +77,14 @@ ok($row_names->('3c7e8deb78600666b7462529721d00054b7a41b3b506c798c21a17351ff4899
    'one line names every build sharing a checksum');
 is(scalar keys %row_of, scalar @rows, 'no checksum is listed on two lines');
 {
-    my %lines_naming;
-    $lines_naming{$_}++ for map { @{ $_->{builds} } } @rows;
-    is_deeply([grep { $lines_naming{$_} > 1 } sort keys %lines_naming], [], 'no build is listed on two lines');
+    # A build CAN name two rows: the snapshot checksum also covers AbstractConfig.pm from
+    # libpve-guest-common-perl, so a guest-common release that changes it gives the same
+    # pve-container build a second vetted checksum. Such rows must come out in one fixed
+    # order (by checksum), never in Perl's per-process hash order.
+    my %sums_of;
+    push @{ $sums_of{$_->{builds}[0]} }, $_->{sum} for grep { @{ $_->{builds} } == 1 } @rows;
+    my @unordered = grep { join(' ', @{ $sums_of{$_} }) ne join(' ', sort @{ $sums_of{$_} }) } sort keys %sums_of;
+    is_deeply(\@unordered, [], 'rows naming the same build are ordered by checksum');
 }
 {
     # Ordered by version, not by string: a string sort puts 6.1.10 before 6.1.2.

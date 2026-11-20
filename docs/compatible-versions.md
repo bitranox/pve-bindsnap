@@ -35,7 +35,9 @@ These builds snapshot bind-mount CTs with no keyword needed.
 
 The checksum also covers `PVE/AbstractConfig.pm`, which ships in `libpve-guest-common-perl`, so
 each row holds for the guest-common version named in it. Several builds share a row because the
-guarded files did not change between them. 6.1.11 ships with guest-common 6.0.4 and 6.1.12/6.1.13
+guarded files did not change between them. One build can also have two rows: when a guest-common
+release changes `AbstractConfig.pm` while the pve-container build stays the same, that pairing gets
+its own checksum and is vetted on its own. 6.1.11 ships with guest-common 6.0.4 and 6.1.12/6.1.13
 with 6.0.5; those two guest-common versions carry an identical `AbstractConfig.pm`.
 
 A build not named in a table is still accepted when its guarded files are byte-identical to a

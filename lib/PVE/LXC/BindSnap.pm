@@ -532,6 +532,8 @@ sub _log_op_summary {
 # Indented "pve-container <ver>  <checksum>" lines for every known-good build, for the
 # multi-line refusal explanations (printed to the task log, which preserves newlines).
 # Ordered by the label's first version numerically: a string sort puts 6.1.10 before 6.1.2.
+# Equal labels (one build vetted beside two libpve-guest-common-perl versions, each giving its
+# own checksum) fall back to the checksum, so the order never depends on Perl's hash seed.
 # Pure, unit-testable.
 sub _version_key {
     my ($label) = @_;
@@ -540,7 +542,7 @@ sub _version_key {
 
 sub _known_good_list {
     my @l = map { "    pve-container $KNOWN_GOOD_CHECKSUMS{$_}  $_" }
-        sort { _version_key($KNOWN_GOOD_CHECKSUMS{$a}) cmp _version_key($KNOWN_GOOD_CHECKSUMS{$b}) }
+        sort { _version_key($KNOWN_GOOD_CHECKSUMS{$a}) cmp _version_key($KNOWN_GOOD_CHECKSUMS{$b}) || $a cmp $b }
         keys %KNOWN_GOOD_CHECKSUMS;
     return @l ? join("\n", @l) : "    (none recorded)";
 }

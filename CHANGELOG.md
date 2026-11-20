@@ -18,6 +18,15 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [Unreleased]
+
+### Fixed
+
+- The known-good list in the snapshot refusal messages now lists rows with the same
+  pve-container version in a fixed order (by checksum). One build can have two vetted snapshot
+  checksums when a libpve-guest-common-perl release changes `PVE/AbstractConfig.pm`, and
+  before this fix the two lines came out in a different order from run to run.
+
 ## [1.7.0] - 2026-11-20
 
 ### Added
