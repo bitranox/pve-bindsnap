@@ -14,7 +14,7 @@ use strict;
 use warnings;
 
 # =====================================================================
-# pve-bindsnap                                       (1.6.0)
+# pve-bindsnap                                       (1.7.0)
 # ---------------------------------------------------------------------
 # Lets Proxmox snapshot LXC containers that carry bind-/device-mount
 # entries (mpN pointing at host paths), by hiding every non-'volume'
@@ -80,7 +80,7 @@ use warnings;
 # alternative.
 # =====================================================================
 
-our $VERSION = '1.6.0';
+our $VERSION = '1.7.0';
 
 # Upstream files whose byte-content defines the snapshot surface we wrap.
 # foreach_volume_full + snapshot_create/delete/rollback are INHERITED from
@@ -119,6 +119,7 @@ my %KNOWN_GOOD_CHECKSUMS = (
     '9d9b831ad204db6d4cf170a0938c42adb1be209a6a34b2a27886248987a7612e' => '6.1.20',
     'a76ef78dd01ce9519ebf666684bd2ce5a7d7662748411ec6f9667958cc253ac9' => '6.1.23',
     '0dc137fb56fac17c2bfe71dc2d51155dbabc2383f94fbdfb940d163c9e14940e' => '6.1.24',
+    '6107126d5f13980f3dc2d7ce4f5840da6a372b4b0ecf930f8db4c76e5be47ef6' => '6.1.25',
 );
 
 # Known-BAD table. KEY = combined sha256 (same as above); VALUE = a short reason. A
@@ -167,6 +168,7 @@ my %KNOWN_GOOD_CLONE_CHECKSUMS = (
     '42679514db5091382e8d567212b3198542feb31d420b17edeab2fae73a5d2d43' => { label => '6.1.20', variant => 'v6_1_7' },
     '62001c402f1c714d59a6d67c7a4b041f3cd1bb6a8d16f855a0ea905ea4767106' => { label => '6.1.23', variant => 'v6_1_7' },
     'e307ed89228aa05acd5b37968734ce8651c285141ea877fec440d412ed4d3b8d' => { label => '6.1.24', variant => 'v6_1_24' },
+    '41ef73fa8a4cfe206e160672243395625ed06a242d93bfc49a68c7b5359a7713' => { label => '6.1.25', variant => 'v6_1_25' },
 );
 
 my %KNOWN_BAD_CLONE_CHECKSUMS = (

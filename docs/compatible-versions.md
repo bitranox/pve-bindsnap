@@ -31,6 +31,7 @@ These builds snapshot bind-mount CTs with no keyword needed.
 | 6.1.20                     | `9d9b831ad204db6d4cf170a0938c42adb1be209a6a34b2a27886248987a7612e` | E2E-tested on PVE 9.2.26, libpve-guest-common-perl 6.0.8                                                                                        |
 | 6.1.23                     | `a76ef78dd01ce9519ebf666684bd2ce5a7d7662748411ec6f9667958cc253ac9` | E2E-tested on PVE 9.2.30, libpve-guest-common-perl 6.0.9                                                                                        |
 | 6.1.24                     | `0dc137fb56fac17c2bfe71dc2d51155dbabc2383f94fbdfb940d163c9e14940e` | E2E-tested on PVE 9.2.30, libpve-guest-common-perl 6.0.10                                                                                       |
+| 6.1.25                     | `6107126d5f13980f3dc2d7ce4f5840da6a372b4b0ecf930f8db4c76e5be47ef6` | E2E-tested on PVE 9.2.30, libpve-guest-common-perl 6.0.12                                                                                       |
 
 The checksum also covers `PVE/AbstractConfig.pm`, which ships in `libpve-guest-common-perl`, so
 each row holds for the guest-common version named in it. Several builds share a row because the
@@ -95,6 +96,7 @@ On these builds, `pct clone` carries bind/device mountpoints to the new CT (and 
 | 6.1.20                              | `42679514db5091382e8d567212b3198542feb31d420b17edeab2fae73a5d2d43` | E2E-tested on PVE 9.2.26                                                                                  |
 | 6.1.23                              | `62001c402f1c714d59a6d67c7a4b041f3cd1bb6a8d16f855a0ea905ea4767106` | E2E-tested on PVE 9.2.30                                                                                  |
 | 6.1.24                              | `e307ed89228aa05acd5b37968734ce8651c285141ea877fec440d412ed4d3b8d` | E2E-tested on PVE 9.2.30                                                                                  |
+| 6.1.25                              | `41ef73fa8a4cfe206e160672243395625ed06a242d93bfc49a68c7b5359a7713` | E2E-tested on PVE 9.2.30                                                                                  |
 
 **Each build runs its own `clone_vm`.** The clone override installs the build's own upstream
 `clone_vm` with the bind-mount hunks applied. Upstream's method changed three times in this
