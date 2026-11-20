@@ -31,6 +31,7 @@ These builds snapshot bind-mount CTs with no keyword needed.
 | 6.1.20                     | `9d9b831ad204db6d4cf170a0938c42adb1be209a6a34b2a27886248987a7612e` | E2E-tested on PVE 9.2.26, libpve-guest-common-perl 6.0.8                                                                                        |
 | 6.1.23                     | `a76ef78dd01ce9519ebf666684bd2ce5a7d7662748411ec6f9667958cc253ac9` | E2E-tested on PVE 9.2.30, libpve-guest-common-perl 6.0.9                                                                                        |
 | 6.1.24                     | `0dc137fb56fac17c2bfe71dc2d51155dbabc2383f94fbdfb940d163c9e14940e` | E2E-tested on PVE 9.2.30, libpve-guest-common-perl 6.0.10                                                                                       |
+| 6.1.24                     | `b1033708527e095f14650daa0001b3eeb02ec5612576aaaf3bea6c7f32742015` | E2E-tested on PVE 9.2.30, libpve-guest-common-perl 6.0.11                                                                                       |
 | 6.1.25                     | `6107126d5f13980f3dc2d7ce4f5840da6a372b4b0ecf930f8db4c76e5be47ef6` | E2E-tested on PVE 9.2.30, libpve-guest-common-perl 6.0.12                                                                                       |
 
 The checksum also covers `PVE/AbstractConfig.pm`, which ships in `libpve-guest-common-perl`, so
