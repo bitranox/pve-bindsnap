@@ -268,7 +268,13 @@ covers) or use `zfs snapshot` directly.
 `vzdump <vmid> --storage <store>`. The overlay passes every `vzdump` call straight to stock code
 on any build, tested, untested or known-BAD, and stock `vzdump` leaves bind and device mounts out
 of the archive (their data is host data, outside Proxmox storage) and backs up only the rootfs and
-the `volume` mount points marked `backup=1`. It needs no marker and no raw `zfs snapshot`. Keep
+the `volume` mount points marked `backup=1`. It needs no marker and no raw `zfs snapshot`. On a
+running CT, `--mode snapshot` is crash-consistent, the same as the freeze route: vzdump names its
+temporary snapshot `vzdump`, which the overlay hands to stock code, and stock code freezes the CT,
+snapshots each volume and thaws it. If a backed-up volume's storage cannot snapshot, vzdump falls
+back to `--mode suspend`. So the choice between the two is not consistency: the freeze route is
+quick and rolls back in place but needs every managed volume on ZFS; a vzdump archive is slower,
+covers any storage and restores with `pct restore`. Keep
 the default `--mode snapshot`; `--mode stop` stops the container for the backup and starts it
 again, which re-runs everything the container does at boot. A boot unit that pulls and recreates
 its containers then performs, before you are ready, the very change the backup was meant to

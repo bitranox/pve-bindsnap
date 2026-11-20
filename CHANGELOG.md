@@ -18,6 +18,16 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.9.1] - 2026-11-20
+
+### Changed
+
+- The `proxmox-bindsnap` skill says what consistency `vzdump --mode snapshot` gives a RUNNING
+  container: crash-consistent, the same as the freeze route, because the overlay hands vzdump's
+  temporary `vzdump` snapshot to stock code, which freezes, snapshots each volume and thaws. A
+  volume on storage that cannot snapshot makes vzdump fall back to suspend mode. The choice between
+  the two routes is speed and rollback against storage coverage. No code change.
+
 ## [1.9.0] - 2026-11-20
 
 ### Added
