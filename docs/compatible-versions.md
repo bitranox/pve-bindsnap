@@ -103,8 +103,8 @@ On these builds, `pct clone` carries bind/device mountpoints to the new CT (and 
 | 6.1.25, 6.1.26                      | `41ef73fa8a4cfe206e160672243395625ed06a242d93bfc49a68c7b5359a7713` | E2E-tested on PVE 9.2.30; 6.1.26 E2E-tested on PVE 9.2.30                                                 |
 
 **Each build runs its own `clone_vm`.** The clone override installs the build's own upstream
-`clone_vm` with the bind-mount hunks applied. Upstream's method changed three times in this
-range, so pve-bindsnap ships one variant per distinct upstream text, and each clone checksum
+`clone_vm` with the bind-mount hunks applied. Upstream's method changed between builds in
+this range, so pve-bindsnap ships one variant per distinct upstream text, and each clone checksum
 selects the variant taken from that very build:
 
 | clone_vm variant | pve-container builds with that upstream `clone_vm` |

@@ -14,7 +14,7 @@ use strict;
 use warnings;
 
 # =====================================================================
-# pve-bindsnap                                       (1.9.1)
+# pve-bindsnap                                       (1.9.2)
 # ---------------------------------------------------------------------
 # Lets Proxmox snapshot LXC containers that carry bind-/device-mount
 # entries (mpN pointing at host paths), by hiding every non-'volume'
@@ -80,7 +80,7 @@ use warnings;
 # alternative.
 # =====================================================================
 
-our $VERSION = '1.9.1';
+our $VERSION = '1.9.2';
 
 # Upstream files whose byte-content defines the snapshot surface we wrap.
 # foreach_volume_full + snapshot_create/delete/rollback are INHERITED from
@@ -187,6 +187,7 @@ sub _clone_variant_table { return { %KNOWN_GOOD_CLONE_CHECKSUMS }; }
 my $PROJECT_URL       = 'https://github.com/bitranox/pve-bindsnap';
 my $REPORT_ISSUES_URL = "$PROJECT_URL/issues";
 my $COMPAT_URL        = "$PROJECT_URL/blob/main/docs/compatible-versions.md";
+my $DESIGN_URL        = "$PROJECT_URL/blob/main/docs/design.md";
 
 my $TAG = 'pve-bindsnap';
 our $APPLIED = 0;     # 'our' so install.sh's pre-flight can read it
@@ -612,6 +613,12 @@ sub _msg_untested {
          . "\n"
          . "A newer overlay release may already cover your build -- full supported list:\n"
          . "    $COMPAT_URL\n"
+         . "\n"
+         . "Two routes run no overlay snapshot code and work on THIS build now:\n"
+         . "  - managed volumes all on ZFS: one `zfs snapshot` of EVERY managed volume (rootfs\n"
+         . "    and each mpN, not just disk-0), plus a copy of /etc/pve/lxc/<vmid>.conf;\n"
+         . "  - any storage: `vzdump <vmid>` -- it skips each mpN without backup=1.\n"
+         . "Steps and rollback caveats: $DESIGN_URL\n"
          . "\n"
          . "Otherwise update pve-container to one of the tested builds above, or to snapshot\n"
          . "on THIS build at your own risk add the word BINDSNAP-UNSUPPORTED to the snapshot name\n"

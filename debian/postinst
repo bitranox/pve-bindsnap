@@ -81,7 +81,7 @@ left_to_pve_manager() {
 case "$1" in
 configure)
     if ! preflight; then
-        echo "pve-bindsnap: daemons NOT reloaded; Proxmox keeps its stock behaviour." >&2
+        echo "pve-bindsnap: the overlay is not active; Proxmox keeps its stock behaviour, also after the daemons reload." >&2
         exit 1
     fi
     report

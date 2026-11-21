@@ -122,6 +122,14 @@ my $msg_untested = PVE::LXC::BindSnap->can('_msg_untested') or BAIL_OUT('_msg_un
     like($m, qr/\Q$good\E/,                        'untested: shows the known-good list');
     like($m, qr{compatible-versions\.md},          'untested: links the compatible-versions page');
     like($m, qr/works or/,                         'untested: asks to report works or not');
+    like($m, qr/zfs snapshot/,                     'untested: names the raw ZFS snapshot route');
+    like($m, qr/EVERY managed volume/,             'untested: the ZFS route covers every managed volume');
+    like($m, qr{/etc/pve/lxc/<vmid>\.conf},        'untested: the ZFS route saves the CT config');
+    like($m, qr/vzdump/,                           'untested: names the vzdump route');
+    like($m, qr/backup=1/,                         'untested: says vzdump needs backup=1 on each mpN');
+    like($m, qr{docs/design\.md},                  'untested: links the design notes for the steps');
+    like($m, qr/zfs snapshot.*BINDSNAP-UNSUPPORTED/s,
+         'untested: offers the safe routes before the BINDSNAP-UNSUPPORTED opt-in');
     like($m, qr{/issues},                          'untested: links the issues URL');
     like($m, qr/\n/,                               'untested: multi-line (for the task log)');
 }

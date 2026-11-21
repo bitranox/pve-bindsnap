@@ -65,9 +65,11 @@ drop it. Note `unless excluded` flips sides between the columns: `BINDSNAP-EXCLU
 managed volume from a *snapshot*, and a bind/device mount from a *clone*. See
 [Cloning a bind-mount container](#cloning-a-bind-mount-container).
 
-If you only want the rootfs snapshot and don't care about seeing it in the GUI, you
-don't need any of this: `zfs snapshot` on the stopped container gives you the same
-result. The overlay earns its keep when you want the snapshot to show up in the GUI and
+If every managed volume is on ZFS and you don't care about seeing the snapshot in the GUI,
+you don't need any of this: one `zfs snapshot` of every managed volume of the stopped
+container (the rootfs and each `mpN`, not just `disk-0`) plus a copy of its config gives you
+the same data; [the design notes](docs/design.md#the-zero-risk-alternative) have the steps and
+the rollback caveats. The overlay earns its keep when you want the snapshot to show up in the GUI and
 `pct`, or when a scheduled fleet snapshotter like
 [cv4pve-autosnap](https://github.com/Corsinvest/cv4pve-autosnap) takes them through the API
 for you (the divert covers that path too, so it can finally snapshot a bind-mount CT). The

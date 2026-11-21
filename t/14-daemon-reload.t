@@ -36,9 +36,11 @@ sub slurp {
 
 # One scratch node. Options: manager (installed pve-manager), pending (its file trigger
 # is pending in this dpkg run), watches (its interest is registered), pem (cluster cert
-# present), install_mode, systemd (a running systemd).
+# present), install_mode, systemd (a running systemd), preflight_fails (the overlay does not
+# load, so configure exits 1).
 sub node {
-    my (%o) = (manager => 1, pending => 1, watches => 1, pem => 1, install_mode => 0, systemd => 1, @_);
+    my (%o) = (manager => 1, pending => 1, watches => 1, pem => 1, install_mode => 0, systemd => 1,
+               preflight_fails => 0, @_);
     my $dir   = tempdir(CLEANUP => 1);
     my $root  = "$dir/root";
     my $admin = "$dir/admin";
@@ -63,9 +65,10 @@ sub node {
         spew("$bin/$tool", "#!/bin/sh\necho \"$tool \$*\" >> \"$dir/calls\"\n");
         chmod 0755, "$bin/$tool";
     }
-    spew("$bin/perl", "#!/bin/sh\nexit 0\n");    # the overlay preflight: it loads
+    my $loads = $o{preflight_fails} ? 1 : 0;
+    spew("$bin/perl", "#!/bin/sh\nexit $loads\n");    # the overlay preflight: 0 = it loads
     chmod 0755, "$bin/perl";
-    return {dir => $dir, root => $root, admin => $admin, bin => $bin};
+    return {dir => $dir, root => $root, admin => $admin, bin => $bin, rc => $loads};
 }
 
 # Run a maintainer script on a node: (calls it made, its output).
@@ -76,7 +79,7 @@ sub run_script {
     local $ENV{DPKG_ADMINDIR} = $n->{admin};
     local $ENV{LC_ALL}        = 'C';
     my $out = `sh '$REPO/debian/$script' @args 2>&1`;
-    is($? >> 8, 0, "$script @args exits 0");
+    is($? >> 8, $n->{rc}, "$script @args exits $n->{rc}");
     return (slurp("$n->{dir}/calls"), $out);
 }
 
@@ -90,6 +93,18 @@ subtest 'configure: pve-manager trigger pending in this run, no reload of ours' 
     my ($calls, $out) = run_script(node(), 'postinst', 'configure');
     is(reloads($calls), 0, 'no systemctl reload');
     like($out, qr/reloaded by pve-manager/, 'the apt log says who reloads');
+};
+
+# A failed preflight leaves the wrappers loading the overlay eval-guarded, so the daemons
+# run stock code even when pve-manager's trigger reloads them; the message must not claim
+# that nothing reloads them.
+subtest 'configure with a failed preflight: exits 1, reloads nothing itself, says stock' => sub {
+    my ($calls, $out) = run_script(node(preflight_fails => 1), 'postinst', 'configure');
+    is(reloads($calls), 0, 'no systemctl reload');
+    unlike($out, qr/NOT reloaded/, 'does not claim the daemons stay unreloaded');
+    like($out, qr/overlay is not active/, 'says the overlay is not active');
+    like($out, qr/stock behaviour/, 'says Proxmox keeps stock behaviour');
+    like($out, qr/reload/, 'says a daemon reload keeps it stock');
 };
 
 subtest 'configure without the pending trigger (dpkg-reconfigure) reloads' => sub {

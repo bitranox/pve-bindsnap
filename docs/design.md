@@ -78,7 +78,10 @@ checksum of the upstream source matches a known-good value. That's its own page:
 
 The backup path is left completely alone. `vzdump` already excludes bind mounts on
 its own, so the overlay passes anything with the `vzdump` snapshot name straight
-through to stock code.
+through to stock code. Stock code also leaves out every managed `mpN` volume that lacks
+`backup=1`: only the rootfs is always in the archive. The task log names each one it skips,
+`excluding volume mount point mpN ('<path>') from backup (disabled)`, so check
+`pct config <vmid>` before relying on a backup for a data volume.
 
 It never patches the web GUI. Every parameter the overlay takes (`BINDSNAP-FORCE-RUNNING`,
 `BINDSNAP-UNSUPPORTED`, `BINDSNAP-EXCLUDE`) rides in fields Proxmox already has: the snapshot's
@@ -149,18 +152,49 @@ managed volumes rewind, the bind/device data stays as it is now.
 ## The zero-risk alternative
 
 The overlay buys you one thing over plain ZFS: the snapshot shows up in the GUI and
-`pct listsnapshot`. For the clean case, a stopped container, you get the identical
-result from `zfs` directly, with none of the caveats above:
+`pct listsnapshot`. When every managed volume of the container is on ZFS, you get the
+same data from `zfs` directly, with no overlay code involved. It has to cover the whole
+container, not just its rootfs:
+
+1. `pct config <vmid>` lists the volumes. A `rootfs` or `mpN` value starting with `/` is a
+   bind mount and a `devN` a device: host data, in no snapshot either way. Every other
+   `rootfs`/`mpN` is a managed volume `<storage>:<volume>`; `pvesm status` must show each
+   such storage as `zfspool`, otherwise use `vzdump` (with `backup=1` on each `mpN`, see
+   above).
+2. Map each managed volume to its dataset: `zfs list -H -o name "$(pvesm path <storage>:<volume>)"`.
+3. Snapshot all of them in ONE command, so they agree with each other, under a name no
+   later `pct snapshot` will use. A rootfs-only snapshot misses every `mpN` volume.
+4. Save the container config, which no ZFS snapshot holds.
 
 ```bash
-zfs snapshot <pool>/subvol-<vmid>-disk-0@before-change   # instant, container stopped
-zfs rollback <pool>/subvol-<vmid>-disk-0@before-change   # container stopped
-zfs destroy  <pool>/subvol-<vmid>-disk-0@before-change
+pct stop <vmid>                     # or freeze it; the skill has a script for a running CT
+zfs snapshot <pool>/subvol-<vmid>-disk-0@before-change <pool>/subvol-<vmid>-disk-1@before-change
+cp /etc/pve/lxc/<vmid>.conf /root/<vmid>.conf.before-change
+
+# roll back: CT stopped, EVERY dataset, then the config if the change edited it
+pct stop <vmid>
+zfs rollback <pool>/subvol-<vmid>-disk-0@before-change
+zfs rollback <pool>/subvol-<vmid>-disk-1@before-change
+cp /root/<vmid>.conf.before-change /etc/pve/lxc/<vmid>.conf
+pct start <vmid>
+
+# done with it
+zfs destroy <pool>/subvol-<vmid>-disk-0@before-change
+zfs destroy <pool>/subvol-<vmid>-disk-1@before-change
 ```
 
-A small wrapper over those three commands gets you most of the ergonomics at none of
-the risk. Reach for the overlay when you specifically want Proxmox to know about the
-snapshot.
+Proxmox does not know about such a snapshot, and the two kinds get in each other's way:
+
+- `zfs rollback` refuses while a newer snapshot of that dataset exists, a later
+  `pct snapshot` included. `-r` goes through by destroying those, and their entries then
+  stay in the container config with no data behind them.
+- Proxmox rolls a ZFS volume back only to its most recent snapshot, so while the raw
+  snapshot exists, `pct rollback` to an older Proxmox snapshot of that container is
+  refused. Destroy the raw snapshot when you no longer need it.
+
+The step-by-step version, including the freeze script for a running container, is section 5
+of the [`proxmox-bindsnap` skill](../skills/proxmox-bindsnap/SKILL.md). Reach for the overlay
+when you want Proxmox to know about the snapshot.
 
 ## Repo layout
 

@@ -18,6 +18,29 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.9.2] - 2026-11-21
+
+### Changed
+
+- The refusal for a snapshot on an untested build now names the two routes that run no overlay
+  snapshot code and work on that build at once: one `zfs snapshot` of every managed volume (rootfs
+  and each `mpN`) plus a copy of the CT config, when all managed volumes are on ZFS; and `vzdump`
+  on any storage, which skips each `mpN` without `backup=1`. It links the design notes for the
+  steps and offers both before `BINDSNAP-UNSUPPORTED`.
+- The apt package's message for a failed pre-flight says what happens: the overlay is not active
+  and Proxmox keeps its stock behaviour, also after pve-manager's trigger reloads the daemons. The
+  old text said the daemons were not reloaded, which is not true when pve-manager's trigger runs.
+- `docs/design.md`, "The zero-risk alternative", and the README snapshot every managed volume, not
+  only `subvol-<vmid>-disk-0`, save the CT config, and state the rollback interactions: the CT
+  must be stopped, `zfs rollback` refuses while newer snapshots exist, and `pct rollback` to an
+  older Proxmox snapshot is refused while the raw snapshot exists.
+- `docs/design.md` and the `proxmox-bindsnap` skill say that stock `vzdump` backs up a managed
+  `mpN` only when it carries `backup=1`, how to check it in `pct config`, how to set it on a
+  running CT with `pct set <vmid> -mpN <current value>,backup=1`, and which task-log line shows a
+  volume left out (`excluding volume mount point mpN (...) from backup (disabled)`).
+- `docs/compatible-versions.md` no longer counts how often upstream's clone method changed; the
+  table below it lists every variant.
+
 ## [1.9.1] - 2026-11-20
 
 ### Changed

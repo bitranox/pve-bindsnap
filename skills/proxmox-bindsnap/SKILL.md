@@ -92,17 +92,17 @@ perl -e 'require PVE::LXC::Config; require PVE::API2::LXC;
 
 ## 3. Decision quick reference
 
-| Situation                                      | Do this                                                                              |
-|------------------------------------------------|--------------------------------------------------------------------------------------|
-| Snapshot a STOPPED bind-mount CT, tested build | Just `pct snapshot <vmid> <name>`                                                    |
-| Snapshot a RUNNING CT                          | Add `BINDSNAP-FORCE-RUNNING` (section 4)                                             |
-| Safety net NOW, stopped CT, all volumes on ZFS | Raw `zfs snapshot` of every managed volume (section 5)                               |
-| Safety net NOW, running CT, all volumes on ZFS | `lxc-freeze`, ONE `zfs snapshot` of every managed volume, `lxc-unfreeze` (section 5) |
-| Safety net NOW, a managed volume not on ZFS    | `vzdump <vmid> --storage <store>`, snapshot mode (section 5)                         |
-| Build shows TEST mode / untested               | Opt in with `BINDSNAP-UNSUPPORTED`, then get it vetted (section 5)                   |
-| Keep a managed data disk out of the snapshot   | `BINDSNAP-EXCLUDE: mpN` in CT Notes (section 4)                                      |
-| Clone a bind-mount CT                          | `pct clone` works; binds are carried (section 6)                                     |
-| Clone must NOT inherit a bind/data mount       | `BINDSNAP-EXCLUDE: mpN` in the SOURCE CT Notes                                       |
+| Situation                                      | Do this                                                                                |
+|------------------------------------------------|----------------------------------------------------------------------------------------|
+| Snapshot a STOPPED bind-mount CT, tested build | Just `pct snapshot <vmid> <name>`                                                      |
+| Snapshot a RUNNING CT                          | Add `BINDSNAP-FORCE-RUNNING` (section 4)                                               |
+| Safety net NOW, stopped CT, all volumes on ZFS | Raw `zfs snapshot` of every managed volume (section 5)                                 |
+| Safety net NOW, running CT, all volumes on ZFS | `lxc-freeze`, ONE `zfs snapshot` of every managed volume, `lxc-unfreeze` (section 5)   |
+| Safety net NOW, a managed volume not on ZFS    | `vzdump <vmid> --storage <store>`, snapshot mode, `backup=1` on each `mpN` (section 5) |
+| Build shows TEST mode / untested               | Opt in with `BINDSNAP-UNSUPPORTED`, then get it vetted (section 5)                     |
+| Keep a managed data disk out of the snapshot   | `BINDSNAP-EXCLUDE: mpN` in CT Notes (section 4)                                        |
+| Clone a bind-mount CT                          | `pct clone` works; binds are carried (section 6)                                       |
+| Clone must NOT inherit a bind/data mount       | `BINDSNAP-EXCLUDE: mpN` in the SOURCE CT Notes                                         |
 
 ## 4. Configure: the BINDSNAP- markers
 
@@ -233,6 +233,7 @@ documentation and source, except the running-CT script, which was run on a test 
   `zfs destroy <pool>/subvol-<vmid>-disk-N@<name>`.
 - **`vzdump`: any storage, running or stopped.** See "A pre-change safety net on a build the
   guard refuses" below; it is a full backup, so going back is a restore, not an instant rollback.
+  It skips every managed `mpN` that lacks `backup=1`, so check that first (same paragraph).
 
 The guard is a content checksum of the upstream Proxmox source (two SEPARATE guards: snapshot
 hashes `Config.pm`+`AbstractConfig.pm`; clone hashes `API2/LXC.pm`). On an **untested** build,
@@ -268,17 +269,32 @@ covers) or use `zfs snapshot` directly.
 `vzdump <vmid> --storage <store>`. The overlay passes every `vzdump` call straight to stock code
 on any build, tested, untested or known-BAD, and stock `vzdump` leaves bind and device mounts out
 of the archive (their data is host data, outside Proxmox storage) and backs up only the rootfs and
-the `volume` mount points marked `backup=1`. It needs no marker and no raw `zfs snapshot`. On a
-running CT, `--mode snapshot` is crash-consistent, the same as the freeze route: vzdump names its
-temporary snapshot `vzdump`, which the overlay hands to stock code, and stock code freezes the CT,
-snapshots each volume and thaws it. If a backed-up volume's storage cannot snapshot, vzdump falls
-back to `--mode suspend`. So the choice between the two is not consistency: the freeze route is
-quick and rolls back in place but needs every managed volume on ZFS; a vzdump archive is slower,
-covers any storage and restores with `pct restore`. Keep
-the default `--mode snapshot`; `--mode stop` stops the container for the backup and starts it
-again, which re-runs everything the container does at boot. A boot unit that pulls and recreates
-its containers then performs, before you are ready, the very change the backup was meant to
-precede.
+the `volume` mount points marked `backup=1`. That flag is OFF unless set: a managed `mpN` line in
+`pct config <vmid>` without `backup=1` is not in the archive, so a backup taken as a safety net
+for a data volume (a database on `mp1`) silently holds none of that data. Check every managed
+`mpN` line BEFORE the backup, and set the flag on each one that must be kept by repeating its
+current value exactly and adding only `backup=1`:
+`pct set <vmid> -mpN <the current mpN value>,backup=1`. On a running CT that change applies at
+once, because `backup` is one of the options stock code changes live; if anything else in the
+value differs, the change stays pending until the CT restarts, which `pct pending <vmid>` shows.
+The task log then names each volume: `including mount point mpN ('<path>') in backup` for one it
+keeps, and `excluding volume mount point mpN ('<path>') from backup (disabled)` for one without
+the flag (a bind mount reads `excluding bind mount point ... (not a volume)`). A volume you need
+that the log excludes means no safety net for it: set the flag and run the backup again. vzdump
+needs no marker and no raw `zfs snapshot`. On a running CT, `--mode snapshot` is crash-consistent,
+the same as the freeze route: vzdump names its temporary snapshot `vzdump`, which the overlay hands
+to stock code, and stock code freezes the CT, snapshots each volume and thaws it. If a backed-up
+volume's storage cannot snapshot, vzdump falls back to `--mode suspend`. So the choice between
+the two is not consistency: the freeze route is quick and rolls back in place but needs every
+managed volume on ZFS; a vzdump archive is slower, covers any storage and restores with
+`pct restore`. Going back to it over the same CT: `pct stop <vmid>`, then
+`pct restore <vmid> <archive> --force 1`, with `<archive>` the volume ID that
+`pvesm list <store> --vmid <vmid>` lists (a running CT is refused with
+`can't overwrite running container`). The restore leaves the CT stopped; `pct start <vmid>`
+brings it back. Keep the default `--mode snapshot`; `--mode stop` stops the container for the
+backup and starts it again, which re-runs everything the container does at boot. A boot unit
+that pulls and recreates its containers then performs, before you are ready, the very change the
+backup was meant to precede.
 
 ## 6. Clone
 
