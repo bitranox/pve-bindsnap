@@ -32,6 +32,7 @@ jobs:
       - name: Perl syntax check
         run: |
           perl -c lib/PVE/LXC/BindSnap.pm
+          perl -c lib/PVE/LXC/Config.wrapper.pm
           perl -c lib/PVE/API2/LXC.wrapper.pm
           for f in lib/PVE/LXC/BindSnap/Clone/*.pm; do perl -Ilib -c "$f"; done
           perl -c tools/gen-clone-variants.pl

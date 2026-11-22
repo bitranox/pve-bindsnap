@@ -60,7 +60,9 @@ Concretely: when the standing CT directive applies, the overlay writes the resol
 `#### BINDSNAP-EXCLUDE: ...` line into the snapshot's stored comment at create time; when the
 override comes from the snapshot's own description, it's already there. Either way,
 `rollback` rewinds (and `delete` removes) exactly the volumes the snapshot captured, and
-leaves the excluded ones as they are.
+leaves the excluded ones as they are. A managed volume the snapshot does not hold at all (one
+added after the snapshot was taken) is kept as an `unusedN` entry on rollback, as stock
+Proxmox keeps it, whether the Notes exclude it or not.
 
 ## Scope
 

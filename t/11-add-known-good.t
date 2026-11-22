@@ -164,6 +164,51 @@ sub module_snap_labels {
               'docs clone table mirrors %KNOWN_GOOD_CLONE_CHECKSUMS (checksums and labels)');
 }
 
+# --- the known-bad tables agree with their human mirror too ----------------------------
+# A doc row (pve-container, `sha`, reason) stands for the module entry
+# 'sha' => 'pve-container <version>: <reason>'; the "(none yet)" row stands for an empty table
+# and must be the table's only row.
+sub module_bad {
+    my ($text, $name) = @_;
+    my ($block) = $text =~ /^my %\Q$name\E = \(\n(.*?)^\);/ms;
+    return { map { /^\s*'([0-9a-f]{64})'\s*=>\s*'([^']*)'/ ? ($1 => $2) : () } split /\n/, $block // '' };
+}
+
+sub doc_bad {
+    my ($doc, $heading) = @_;
+    my @rows = @{ doc_rows($doc, $heading) };
+    return { _placeholder_only => 1 } if @rows == 1 && $rows[0][0] eq '(none yet)';
+    return { map { (($_->[1] =~ s/`//gr) => "pve-container $_->[0]: $_->[2]") } @rows };
+}
+
+sub bad_mirror_matches {
+    my ($mod, $doc, $name, $heading) = @_;
+    my $m = module_bad($mod, $name);
+    my $d = doc_bad($doc, $heading);
+    return %$m ? eq_hash($d, $m) : eq_hash($d, { _placeholder_only => 1 });
+}
+
+{
+    my $mod = slurp("$REPO/$MOD");
+    my $doc = slurp("$REPO/$DOC");
+    my @pairs = (['KNOWN_BAD_CHECKSUMS', '## Hard-blocked (known-bad)'],
+                 ['KNOWN_BAD_CLONE_CHECKSUMS', '### Hard-blocked (known-bad)']);
+    for my $p (@pairs) {
+        my ($name, $heading) = @$p;
+        ok(@{ doc_rows($doc, $heading) } > 0, "docs have the table under '$heading'");
+        ok(bad_mirror_matches($mod, $doc, $name, $heading), "docs '$heading' mirrors %$name");
+        # A planted module entry the docs lack must make the comparison fail.
+        my $planted = $mod =~ s/^(my %\Q$name\E = \(\n)/$1    '${\ ('c' x 64)}' => 'pve-container 9.9.9: planted',\n/mr;
+        isnt($planted, $mod, "the plant reached %$name");
+        ok(!bad_mirror_matches($planted, $doc, $name, $heading), "a %$name entry the docs lack is caught");
+        # The same entry in both, as a filled table holds it, must match.
+        my ($pre, $post) = split /^\Q$heading\E\n/m, $doc, 2;
+        $post =~ s/^\| \(none yet\)[^\n]*$/| 9.9.9 | `${\ ('c' x 64)}` | planted |/m;
+        ok(bad_mirror_matches($planted, "$pre$heading\n$post", $name, $heading),
+           "a filled '$heading' row in the module's form matches");
+    }
+}
+
 # --- a new snapshot row + a label merged into an existing clone row -------------------
 my $dir = fresh_tree();
 add_tsv_row($dir, $MID, $CLONE_A, 'v6_1_7');

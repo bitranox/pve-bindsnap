@@ -80,7 +80,7 @@ use warnings;
 # alternative.
 # =====================================================================
 
-our $VERSION = '1.10.0';
+our $VERSION = '1.10.1';
 
 # Upstream files whose byte-content defines the snapshot surface we wrap.
 # foreach_volume_full + snapshot_create/delete/rollback are INHERITED from
@@ -201,10 +201,16 @@ our $APPLIED = 0;     # 'our' so install.sh's pre-flight can read it
 our $CLONE_LOADED  = 0;
 our $CLONE_APPLIED = 0;
 
-# The validated build's version label and the clone_vm variant installed for it, set by
-# apply_clone. The variant's task-log summary reads the label through _clone_vlabel.
-our $CLONE_VLABEL  = 'unknown';
+# The clone_vm variant installed for the validated build, set by apply_clone. The variant's
+# task-log summary reads the build's version label through _clone_vlabel.
 our $CLONE_VARIANT;
+
+# How many times the pve-container version was read from dpkg. Every pct call and daemon
+# start loads the overlay, so the label is read lazily, at most once per process, and only
+# when something prints it: a snapshot, or a daemon's activation lines. A pct call that takes
+# no snapshot never reads it; the tests check this counter.
+our $PKG_VERSION_QUERIES = 0;
+my $VLABEL;
 
 # Effective per-snapshot exclude set (hashref of mpN keys), localised by
 # snapshot_create for the duration of the create call. When defined the filter uses it
@@ -242,7 +248,14 @@ sub _is_pve_daemon {
 # else sees it. The per-snapshot summaries and ALL refusals/warnings are emitted on the
 # operation (via _log_journal / _log_block / die) and are deliberately NOT gated here, so
 # GUI and CLI snapshots still report fully.
-sub _log_banner { return if -t STDERR; return unless _is_pve_daemon(); _log($_[0]); }
+# A code ref is called only when the line is really logged, so a banner whose text needs the
+# version label costs no dpkg query where it is not printed.
+sub _log_banner {
+    my ($msg) = @_;
+    return if -t STDERR;
+    return unless _is_pve_daemon();
+    _log(ref($msg) eq 'CODE' ? $msg->() : $msg);
+}
 
 # The clone override's activation line. install.sh and the Debian postinst print it as the
 # line that proves the overlay is active, so it carries the carry rule a reader needs:
@@ -279,6 +292,7 @@ sub _task_warn {
 
 sub _pkg_version {
     my ($pkg) = @_;
+    $PKG_VERSION_QUERIES++;
     return eval {
         # pvedaemon/pveproxy/pct run perl -T (taint), where a backtick with a tainted
         # PATH dies before exec. Use a clean %ENV and an absolute dpkg-query so the
@@ -288,6 +302,9 @@ sub _pkg_version {
         $out =~ /\A\s*(\S+)\s*\z/ ? $1 : undef;
     };
 }
+
+# The installed pve-container version, for messages only (the checksum decides). Read once.
+sub _vlabel { return $VLABEL //= _pkg_version('pve-container') // 'unknown'; }
 
 # Resolve the on-disk path of the GENUINE upstream module to checksum. From %INC,
 # falling back to the standard PVE perl5 dir. But when we are installed via
@@ -720,7 +737,6 @@ sub _apply {
     # BINDSNAP-UNSUPPORTED opt-in in the snapshot name/Description (handled in snapshot_create).
     # The pve-container version is a human label only -- never the decision.
     my ($sum, $per) = _config_checksum();
-    my $vlabel = _pkg_version('pve-container') // 'unknown';
     my $checksum_known = defined($sum) && exists $KNOWN_GOOD_CHECKSUMS{$sum};
     # Known-BAD wins over everything: a hard block that BINDSNAP-UNSUPPORTED cannot override.
     my $bad_reason = (defined($sum) && exists $KNOWN_BAD_CHECKSUMS{$sum})
@@ -732,6 +748,7 @@ sub _apply {
     my $orig_create   = PVE::LXC::Config->can('snapshot_create');
     my $orig_delete   = PVE::LXC::Config->can('snapshot_delete');
     my $orig_rollback = PVE::LXC::Config->can('snapshot_rollback');
+    my $orig_unused   = PVE::LXC::Config->can('__snapshot_rollback_get_unused');
 
     unless ($orig_fvf && $orig_feature && $orig_create && $orig_delete && $orig_rollback) {
         _log("one or more expected methods missing; overlay DISABLED (stock behaviour)");
@@ -809,6 +826,7 @@ sub _apply {
         my $unsupp_note = _has_marker($notes,   'BINDSNAP-UNSUPPORTED') ? 1 : 0;
         my $unsupp      = $unsupp_kw || $unsupp_note;
 
+        my $vlabel = _vlabel();
         my $excl = {};
         if ($is_bind) {
             my $sha  = $sum // 'unavailable';
@@ -918,8 +936,20 @@ sub _apply {
         return $orig_rollback->(@_);
     };
 
+    # Rollback keeps each managed volume of the live config that the snapshot lacks as an
+    # unusedN entry, then replaces the config with the snapshot's. That comparison touches no
+    # storage, so it runs unfiltered: a live volume hidden by the Notes' BINDSNAP-EXCLUDE would
+    # otherwise drop out of the config while staying on storage, referenced by nothing. Only
+    # rollback calls it, so the override is permanent like the wrappers above.
+    if ($orig_unused) {
+        *PVE::LXC::Config::__snapshot_rollback_get_unused = sub {
+            local *PVE::LXC::Config::foreach_volume_full = $orig_fvf;
+            return $orig_unused->(@_);
+        };
+    }
+
     $APPLIED = 1;
-    _log_banner(_load_message($checksum_known, $sum, $vlabel, $per, $bad_reason));
+    _log_banner(sub { _load_message($checksum_known, $sum, _vlabel(), $per, $bad_reason) });
 }
 
 # =====================================================================
@@ -1013,7 +1043,7 @@ sub _clone_carry_warning {
          . "  clone reads the directive frozen into the snapshot, not the current Notes.\n";
 }
 
-sub _clone_vlabel { return $CLONE_VLABEL; }
+sub _clone_vlabel { return defined($CLONE_VARIANT) ? _vlabel() : 'unknown'; }
 
 # A --snapname clone of a bind-mount CT: a managed mpN the snapshot excluded has no
 # snapshot data, so the clone leaves it out instead of failing on a missing storage
@@ -1067,7 +1097,6 @@ sub apply_clone {
     };
 
     my ($sum, $per) = _config_checksum(map { _module_path($_) } @CLONE_GUARDED_FILES);
-    my $vlabel = _pkg_version('pve-container') // 'unknown';
     my $checksum_known = defined($sum) && exists $KNOWN_GOOD_CLONE_CHECKSUMS{$sum};
     my $bad_reason = (defined($sum) && exists $KNOWN_BAD_CLONE_CHECKSUMS{$sum})
         ? $KNOWN_BAD_CLONE_CHECKSUMS{$sum} : undef;
@@ -1078,9 +1107,11 @@ sub apply_clone {
     # exactly as upstream, no regression. CLONE_LOADED is still set (the wrapper chain works).
     if (!$checksum_known || defined $bad_reason) {
         my $why = defined $bad_reason ? "known-BAD ($bad_reason)" : "untested";
-        _log_banner("clone overlay loaded but NOT active: pve-container $vlabel clone_vm is "
-                  . "$why (combined sha256 $combined); bind-mount clones use stock behaviour. "
-                  . "Compatible builds: $COMPAT_URL");
+        _log_banner(sub {
+            "clone overlay loaded but NOT active: pve-container " . _vlabel() . " clone_vm is "
+              . "$why (combined sha256 $combined); bind-mount clones use stock behaviour. "
+              . "Compatible builds: $COMPAT_URL";
+        });
         $CLONE_LOADED = 1;
         return;
     }
@@ -1095,10 +1126,10 @@ sub apply_clone {
 
     my $info = eval { PVE::API2::LXC->map_method_by_name('clone_vm') };
     if ($info && ref($info) eq 'HASH' && ref($info->{code}) eq 'CODE') {
-        ($CLONE_VLABEL, $CLONE_VARIANT) = ($vlabel, $variant);
+        $CLONE_VARIANT = $variant;
         $info->{code} = $code;    # mutate the live, shared method definition
         $CLONE_APPLIED = 1;
-        _log_banner(_clone_banner($vlabel, $combined, $variant));
+        _log_banner(sub { _clone_banner(_vlabel(), $combined, $variant) });
     } else {
         _log("clone_vm method definition not found; clone override DISABLED (stock behaviour)");
     }

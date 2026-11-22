@@ -13,15 +13,29 @@ set -e
 
 SERVICES="pvedaemon pveproxy pvestatd"
 
+# The PVE daemons and pct load these modules under perl -T (taint mode), where a module can
+# fail that loads fine without it, so each check loads them the same way. On a failure perl's
+# own stderr is printed (the wrapper's "overlay not loaded (...)" line names the cause).
+# $1: what failed, $2: perl code that exits 0 when the load worked.
+preflight_load() {
+    if ! preflight_err=$(perl -T -e "$2" 2>&1 >/dev/null); then
+        echo "pve-bindsnap: PRE-FLIGHT FAILED -- $1." >&2
+        if [ -n "$preflight_err" ]; then
+            printf '%s\n' "$preflight_err" >&2
+        else
+            echo "pve-bindsnap: (perl printed no error)" >&2
+        fi
+        return 1
+    fi
+}
+
 preflight() {
-    if ! perl -e 'require PVE::LXC::Config; exit($PVE::LXC::BindSnap::APPLIED ? 0 : 1)' >/dev/null 2>&1; then
-        echo "pve-bindsnap: PRE-FLIGHT FAILED -- the snapshot overlay did not apply." >&2
-        return 1
-    fi
-    if ! perl -e 'require PVE::API2::LXC; exit($PVE::LXC::BindSnap::CLONE_LOADED ? 0 : 1)' >/dev/null 2>&1; then
-        echo "pve-bindsnap: PRE-FLIGHT FAILED -- the clone overlay did not load." >&2
-        return 1
-    fi
+    # shellcheck disable=SC2016 # perl code: its $ must reach perl unexpanded
+    preflight_load 'the snapshot overlay did not apply' \
+        'require PVE::LXC::Config; exit($PVE::LXC::BindSnap::APPLIED ? 0 : 1)' || return 1
+    # shellcheck disable=SC2016 # perl code: its $ must reach perl unexpanded
+    preflight_load 'the clone overlay did not load' \
+        'require PVE::API2::LXC; exit($PVE::LXC::BindSnap::CLONE_LOADED ? 0 : 1)'
 }
 
 # The overlay prints its activation lines only from a PVE daemon writing to a non-tty

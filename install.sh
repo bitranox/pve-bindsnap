@@ -4,8 +4,9 @@
 # =====================================================================
 # pve-bindsnap -- installer
 # ---------------------------------------------------------------------
-# Diverts PVE::LXC::Config and installs a thin wrapper that loads the genuine
-# upstream plus the snapshot overlay, so the GUI, API and pct are all covered.
+# Diverts PVE::LXC::Config and PVE::API2::LXC and installs a thin wrapper for each that
+# loads the genuine upstream plus the overlay (snapshots, and clone of bind-mount CTs), so
+# the GUI, API and pct are all covered.
 # Fully reversible (uninstall.sh). The source is on GitHub if you want to read it
 # first. Run on ONE node only; re-running is idempotent. Works from a checkout
 # (./install.sh) and piped:
@@ -146,11 +147,27 @@ install -D -m 0644 "$SRC_DIR/lib/PVE/API2/LXC.wrapper.pm" "$API_PM"
 # wrapper -> .distrib -> overlay) and confirm the overlay applied -- BEFORE restarting
 # any daemon. On failure (here, or anywhere since the divert) the EXIT trap rolls back to
 # stock; the daemons are never touched.
-echo ">> verifying the diverted module loads and the overlay applies"
-perl -e 'require PVE::LXC::Config; exit($PVE::LXC::BindSnap::APPLIED ? 0 : 1)' >/dev/null 2>&1 || {
-    echo "!! PRE-FLIGHT FAILED -- the snapshot overlay did not apply." >&2
-    exit 1
+# The PVE daemons and pct load these modules under perl -T (taint mode), where a module can
+# fail that loads fine without it, so each check loads them the same way. On a failure perl's
+# own stderr is printed (the wrapper's "overlay not loaded (...)" line names the cause).
+# $1: what failed, $2: perl code that exits 0 when the load worked. A copy of the function
+# in debian/postinst (this script must stay standalone); t/21 keeps the two identical.
+preflight_load() {
+    if ! preflight_err=$(perl -T -e "$2" 2>&1 >/dev/null); then
+        echo "pve-bindsnap: PRE-FLIGHT FAILED -- $1." >&2
+        if [ -n "$preflight_err" ]; then
+            printf '%s\n' "$preflight_err" >&2
+        else
+            echo "pve-bindsnap: (perl printed no error)" >&2
+        fi
+        return 1
+    fi
 }
+
+echo ">> verifying the diverted module loads and the overlay applies"
+# shellcheck disable=SC2016 # perl code: its $ must reach perl unexpanded
+preflight_load 'the snapshot overlay did not apply' \
+    'require PVE::LXC::Config; exit($PVE::LXC::BindSnap::APPLIED ? 0 : 1)' || exit 1
 
 # Pre-flight the clone wrapper chain too: load PVE::API2::LXC through the wrapper
 # (-> .distrib -> overlay -> apply_clone) and confirm apply_clone ran (CLONE_LOADED).
@@ -158,10 +175,9 @@ perl -e 'require PVE::LXC::Config; exit($PVE::LXC::BindSnap::APPLIED ? 0 : 1)' >
 # active), so installing on an UNTESTED build does not roll back -- clone simply stays
 # stock there, exactly as snapshots run in TEST mode.
 echo ">> verifying the diverted API module loads and the clone overlay ran"
-perl -e 'require PVE::API2::LXC; exit($PVE::LXC::BindSnap::CLONE_LOADED ? 0 : 1)' >/dev/null 2>&1 || {
-    echo "!! PRE-FLIGHT FAILED -- the clone overlay did not load." >&2
-    exit 1
-}
+# shellcheck disable=SC2016 # perl code: its $ must reach perl unexpanded
+preflight_load 'the clone overlay did not load' \
+    'require PVE::API2::LXC; exit($PVE::LXC::BindSnap::CLONE_LOADED ? 0 : 1)' || exit 1
 INSTALL_OK=1 # verified good -> disarm rollback; from here we only restart daemons
 
 echo ">> restarting ${SERVICES[*]}"

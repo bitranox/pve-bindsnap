@@ -65,8 +65,11 @@ sub node {
         spew("$bin/$tool", "#!/bin/sh\necho \"$tool \$*\" >> \"$dir/calls\"\n");
         chmod 0755, "$bin/$tool";
     }
+    # The overlay preflight: records its arguments, and on failure prints a line to stderr as
+    # the wrapper's eval guard does when the overlay does not load.
     my $loads = $o{preflight_fails} ? 1 : 0;
-    spew("$bin/perl", "#!/bin/sh\nexit $loads\n");    # the overlay preflight: 0 = it loads
+    my $fail  = $loads ? "echo 'pve-bindsnap: overlay not loaded (Insecure dependency, stub)' >&2\n" : '';
+    spew("$bin/perl", "#!/bin/sh\necho \"perl \$*\" >> \"$dir/calls\"\n${fail}exit $loads\n");
     chmod 0755, "$bin/perl";
     return {dir => $dir, root => $root, admin => $admin, bin => $bin, rc => $loads};
 }
@@ -105,6 +108,16 @@ subtest 'configure with a failed preflight: exits 1, reloads nothing itself, say
     like($out, qr/overlay is not active/, 'says the overlay is not active');
     like($out, qr/stock behaviour/, 'says Proxmox keeps stock behaviour');
     like($out, qr/reload/, 'says a daemon reload keeps it stock');
+    like($out, qr/Insecure dependency, stub/, "prints perl's own error, which names the cause");
+};
+
+# The daemons and pct load PVE::LXC::Config under perl -T (taint mode), where a module can
+# fail that loads fine without it, so the preflight must load it the same way.
+subtest 'the preflight loads the overlay under perl -T' => sub {
+    my ($calls) = run_script(node(), 'postinst', 'configure');
+    my @pre = grep { /^perl / && /APPLIED|CLONE_LOADED/ } split /\n/, $calls;
+    is(scalar @pre, 2, 'two preflight loads (snapshot and clone)');
+    ok(!grep({ !/^perl -T / } @pre), 'both run under -T') or diag(join "\n", @pre);
 };
 
 subtest 'configure without the pending trigger (dpkg-reconfigure) reloads' => sub {

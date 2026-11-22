@@ -6,7 +6,7 @@ the latest run; the test plan that produces it is in [testing.md](testing.md).
 ## Off the node
 
 `perl -c` clean (both `BindSnap.pm` and `API2/LXC.wrapper.pm`), `prove -I lib t/` =
-**648 tests pass**, `shellcheck` and `shfmt` clean.
+**683 tests pass**, `shellcheck` and `shfmt` clean.
 The unit tests cover the pure logic: the checksum combine (it reproduces both the
 documented `sha256sum` pipeline and the real value from a node), the `BINDSNAP-FORCE-RUNNING`/
 `BINDSNAP-UNSUPPORTED` matching (case-sensitive, underscore-glue tolerant, read from the
@@ -382,6 +382,17 @@ with the released one. CT 100 got a managed `mp1` (`local-zfs`) beside its bind 
 |----------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
 | Notes `BINDSNAP-EXCLUDE: mp1`, snapshot `pre` (no `mp1@pre` taken), `pct clone 100 201 --snapname pre`         | clone failed: `volume subvol-100-disk-1@pre does not exist on storage local-zfs`, no CT 201 | clone created with `rootfs` and `mp0`, `mp1` left out, two `WARN` lines    |
 | `mp0` removed (no bind mount), snapshot `plain1` with description `BINDSNAP-EXCLUDE: mp1` (`mp1@plain1` taken) | rollback left `mp1` unrewound; delete left `mp1@plain1` behind                              | rollback rewound `rootfs` and `mp1`; delete removed both storage snapshots |
+
+## 1.10.1: rollback and the taint-mode pre-flight
+
+Same node, 2026-11-22, each arm from the clean state, comparing the released 1.10.0 with
+1.10.1. CT 100 has the bind `mp0` and a managed `mp1`.
+
+| case                                                                                                                    | 1.10.0                                                                                                                   | 1.10.1                                                      |
+|-------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------|
+| Notes `BINDSNAP-EXCLUDE: mp2`, snapshot `s2`, then `mp2` added (managed), `pct rollback 100 s2`                         | `mp2` gone from the config, its volume still on storage; `pct rescan --vmid 100` adds it back as `unused0`               | `mp2` kept as `unused0`                                     |
+| snapshot `s1` excludes `mp1` in its own description, Notes do not, `pct rollback 100 s1`                                | no `unusedN` names `mp1`'s volume                                                                                        | no `unusedN` names `mp1`'s volume                           |
+| a taint-only failure planted in the overlay: plain `perl -e` load, `perl -T` load, then `dpkg-reconfigure pve-bindsnap` | plain load reports the overlay applied, `-T` load refuses it; reconfigure exits 0 and prints both "overlay active" lines | reconfigure exits 1 and prints perl's error naming the line |
 
 ## Aftermath
 

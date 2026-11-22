@@ -18,6 +18,33 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.10.1] - 2026-11-22
+
+The remaining items sasha-id raised in PR #2.
+
+### Fixed
+
+- A rollback of a bind-mount CT kept no `unusedN` entry for a managed volume that the CT's
+  Notes excluded and the snapshot did not hold (one added after the snapshot was taken). The
+  volume dropped out of the config while it stayed on storage, referenced by nothing. Rollback
+  now keeps it as `unusedN`, as stock Proxmox does: the check that decides this touches no
+  storage, so the exclude filter no longer applies there. A volume already dropped this way is
+  found again by `pct rescan --vmid <vmid>`, which adds it back as `unusedN`.
+- The install pre-flight (`install.sh` and the apt package's `postinst`) loads the overlay
+  under `perl -T`, as the PVE daemons and `pct` do. An overlay that loads without taint mode
+  but not with it used to pass the check, so the package reported the overlay active while the
+  daemons ran stock. A failed check now also prints perl's own error, which names the cause.
+
+### Changed
+
+- Loading the overlay no longer runs `dpkg-query` for the pve-container version, which only
+  labels messages. It is read when something prints it (a snapshot, or a daemon's activation
+  lines), at most once per process, so a `pct` call that takes no snapshot runs no extra
+  process.
+- CI syntax-checks `lib/PVE/LXC/Config.wrapper.pm` as well, and the tests check that the
+  known-bad tables of `docs/compatible-versions.md` mirror the module's.
+- The header of `install.sh` names both modules it diverts.
+
 ## [1.10.0] - 2026-11-22
 
 ### Security
