@@ -101,4 +101,6 @@ curl -fsSL https://raw.githubusercontent.com/bitranox/pve-bindsnap/main/install-
 
 This purges the package (stock Proxmox is back) and removes the repository and its key.
 `apt-get purge pve-bindsnap` alone removes the package and leaves the repository configured.
-Snapshots you already took persist, exactly as after `uninstall.sh`.
+Snapshots you already took persist, exactly as after `uninstall.sh`. Delete or roll back the
+bind-mount CT snapshots you still need to act on first: stock Proxmox cannot delete or roll
+back a snapshot that holds a bind mount.

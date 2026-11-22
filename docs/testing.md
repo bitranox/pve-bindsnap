@@ -37,7 +37,7 @@ vzdump <vmid> --mode snapshot --storage <store>
 # 6. BINDSNAP-UNSUPPORTED path: only fires when the checksum is NOT in the table. To rehearse
 #    it on a recognised node, comment out the table entry and reinstall.
 pct stop <vmid>
-pct snapshot <vmid> nope2                                 # expect: "pve-container <ver> is not in the tested set ... BINDSNAP-UNSUPPORTED"
+pct snapshot <vmid> nope2                                 # expect: "snapshot gated -- pve-container <ver> is untested; add BINDSNAP-UNSUPPORTED ..."
 pct snapshot <vmid> BINDSNAP-UNSUPPORTED-test                      # name carries the word BINDSNAP-UNSUPPORTED -> proceeds
 # (or: pct snapshot <vmid> test2 --description "BINDSNAP-UNSUPPORTED")
 # the snapshot succeeds, but the task ends "TASK WARNINGS" (yellow), not "TASK OK" -- it
@@ -51,7 +51,7 @@ pct stop <vmid>
 pct snapshot <vmid> excl1
 zfs list -t snapshot | grep subvol-<vmid>-disk-0          # rootfs: expect @excl1
 zfs list -t snapshot | grep subvol-<vmid>-disk-1          # mp1: expect NO @excl1
-pct listsnapshot <vmid>                                   # the [excl1] section carries the frozen directive
+pct config <vmid> --snapshot excl1 | grep BINDSNAP        # excl1's description carries the frozen directive
 # override for one snapshot: exclude nothing this time
 pct snapshot <vmid> excl2 --description "BINDSNAP-EXCLUDE:"   # mp1 IS captured in excl2
 # the frozen set survives a later Notes change:
@@ -78,7 +78,18 @@ pct clone <vmid> <newid2> --hostname clone-excl           # mp0 dropped from the
 pct config <newid2> | grep -E 'mp0' || echo "mp0 correctly absent from the clone"
 pct set <vmid> --description "original notes"              # restore
 pct destroy <newid>; pct destroy <newid2>                 # cleanup the test clones
-# 9c. on an UNTESTED build the override is not installed: pct clone falls back to the stock
+# 9c. a caller other than root@pam cannot carry a bind mount. Give a user VM.Clone,
+#     VM.Allocate, VM.Audit, VM.Config.Disk, Datastore.AllocateSpace, Datastore.Audit and
+#     SDN.Use (the clone checks bridge access for each netN), and clone through the API with
+#     that user's token (pct always runs as root@pam):
+#       POST /nodes/<node>/lxc/<vmid>/clone newid=<newid3>
+#     expect HTTP 500 and no new CT: "unable to clone mountpoint 'mp0' (type bind) --
+#     carrying a bind/device mount to a clone is only allowed for root@pam"; with
+#     "#### BINDSNAP-EXCLUDE: mp0" in the Notes the same call succeeds and mp0 is absent
+#     from the clone.
+# 9d. a bind rootfs is never carried, not even for root@pam: a CT whose rootfs is a host
+#     directory keeps the stock refusal "unable to clone mountpoint 'rootfs' (type bind)".
+# 9e. on an UNTESTED build the override is not installed: pct clone falls back to the stock
 #     die ("unable to clone mountpoint ... type bind"), i.e. no regression. Rehearse it by
 #     commenting out the %KNOWN_GOOD_CLONE_CHECKSUMS entry and reinstalling.
 ```

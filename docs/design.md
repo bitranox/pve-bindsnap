@@ -99,10 +99,26 @@ clone loop walks the raw config keys rather than going through `foreach_volume_f
 snapshot filter can't reach it. The non-`volume` branch just dies; the branch right next to
 it (`# copy everything else`) already copies any other option to the new container verbatim.
 
-So the change is small: for a `rootfs`/`mpN` whose type is not `volume`, carry the entry to
-the clone unchanged (it points at the same host path/device) instead of dying, unless a
+So the change is small: for an `mpN` whose type is not `volume`, carry the entry to the
+clone unchanged (it points at the same host path/device) instead of dying, unless a
 `BINDSNAP-EXCLUDE` directive drops it. Managed volumes and the rootfs clone exactly as
-stock. A carried bind mount is not added to the clone's volume list, so the forked worker
+stock, with one exception: a `--snapname` clone leaves out a managed `mpN` that the snapshot
+excluded (`_snap_left_out`), since it has no snapshot data to clone from. Two cases keep upstream's refusal, decided in one place (`_clone_disposition`) that
+every per-build variant calls:
+
+- **A caller other than `root@pam`.** Proxmox lets only `root@pam` set a bind/device
+  mountpoint (`PVE::LXC::check_ct_modify_config_perm`). A clone gives the caller a container
+  of its own, so carrying the source's mount into it would hand any user with `VM.Clone` a
+  host path that rule keeps from them. The test is the same exact `$authuser eq 'root@pam'`
+  comparison, so a `root@pam` API token (`root@pam!<token>`) is refused too. Excluding the
+  mount is honoured for any caller, since dropping it grants nothing.
+- **A bind/device rootfs, for every caller.** The clone would get the same host directory
+  as its rootfs, so the two containers would share one root filesystem and every write in
+  the clone would land in the source.
+
+A `devN` passthrough line never reaches `_clone_disposition`: upstream's loop copies it in its
+"copy everything else" branch for any caller, as stock does, and `BINDSNAP-EXCLUDE` names only
+`mpN` keys. A carried bind mount is not added to the clone's volume list, so the forked worker
 never tries to copy a volume for it; it simply appears in the new container's config and
 `mount_all` mounts the same host path, as it did on the source.
 
@@ -207,7 +223,7 @@ install.sh / uninstall.sh        script install and removal (read them first)
 install-apt.sh                   adds the apt repository and installs the package
 debian/                          package control file and maintainer scripts
 apt/                             the apt archive public key
-tools/                           gen-clone-variants.pl, build-deb.sh, build-apt-repo.sh
+tools/                           gen-clone-variants.pl, add-known-good.pl, build-deb.sh, build-apt-repo.sh
 t/                               unit tests (no Proxmox needed); t/fixtures/clone_vm the upstream slices
 docs/                            this and the other guides
 ```

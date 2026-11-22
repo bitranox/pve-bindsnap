@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 # Clone-override tests. Two layers:
-#   * _clone_disposition -- the pure carry/exclude decision the patched clone_vm makes
+#   * _clone_disposition -- the carry/exclude/deny decision the patched clone_vm makes
 #     for each config option (unit-testable off-node; the full closure needs the live
 #     PVE stack, so its end-to-end behaviour is verified on a node instead).
 #   * apply_clone wiring -- with a stubbed PVE::API2::LXC, prove apply_clone is
@@ -41,17 +41,28 @@ BEGIN {
 
 my $B = 'PVE::LXC::BindSnap';
 
-# === _clone_disposition: the pure carry/exclude rule ===
-is($B->can('_clone_disposition')->('rootfs', 'volume', {}), 'clone-volume', 'managed rootfs is cloned');
-is($B->can('_clone_disposition')->('mp0', 'volume', {}),    'clone-volume', 'managed mpN is cloned');
-is($B->can('_clone_disposition')->('mp0', 'bind', {}),      'carry',        'bind mpN is carried');
-is($B->can('_clone_disposition')->('mp0', 'device', {}),    'carry',        'device mpN is carried');
-is($B->can('_clone_disposition')->('mp1', 'bind', { mp1 => 1 }), 'exclude',  'excluded bind mpN is dropped');
-is($B->can('_clone_disposition')->('mp1', 'volume', { mp1 => 1 }), 'clone-volume',
-    'exclude does NOT affect a managed volume in clone (type wins; a volume is always cloned)');
-is($B->can('_clone_disposition')->('rootfs', 'bind', {}), 'carry', 'rootfs is never excluded (carried even if bind)');
-is($B->can('_clone_disposition')->('net0', undef, {}),    'copy-other', 'netN is copied as-is');
-is($B->can('_clone_disposition')->('hostname', undef, {}), 'copy-other', 'a non-mountpoint option is copied as-is');
+# === _clone_disposition: the pure carry/exclude/deny rule ===
+# Proxmox lets only root@pam set a bind/device mountpoint (PVE::LXC::check_ct_modify_config_perm),
+# so a clone carries one only for root@pam. A bind/device rootfs is never carried: the clone
+# would share the source's root directory.
+{
+    my $d = $B->can('_clone_disposition');
+    is($d->('rootfs', 'volume', {}), 'clone-volume', 'managed rootfs is cloned');
+    is($d->('mp0', 'volume', {}),    'clone-volume', 'managed mpN is cloned');
+    is($d->('mp0', 'bind', {}, root => 1),   'carry', 'bind mpN is carried for root@pam');
+    is($d->('mp0', 'device', {}, root => 1), 'carry', 'device mpN is carried for root@pam');
+    is($d->('mp0', 'bind', {}),   'deny-not-root', 'bind mpN is refused for any other caller');
+    is($d->('mp0', 'device', {}), 'deny-not-root', 'device mpN is refused for any other caller');
+    is($d->('mp1', 'bind', { mp1 => 1 }, root => 1), 'exclude', 'excluded bind mpN is dropped');
+    is($d->('mp1', 'bind', { mp1 => 1 }), 'exclude',
+        'excluded bind mpN is dropped for any other caller too (dropping needs no root)');
+    is($d->('mp1', 'volume', { mp1 => 1 }), 'clone-volume',
+        'exclude does NOT affect a managed volume in clone (type wins; a volume is always cloned)');
+    is($d->('rootfs', 'bind', {}, root => 1), 'deny-rootfs', 'bind rootfs is refused even for root@pam');
+    is($d->('rootfs', 'bind', {}),            'deny-rootfs', 'bind rootfs is refused for any other caller');
+    is($d->('net0', undef, {}),     'copy-other', 'netN is copied as-is');
+    is($d->('hostname', undef, {}), 'copy-other', 'a non-mountpoint option is copied as-is');
+}
 
 # === _clone_code_for loads a per-build variant and returns an installable coderef ===
 # every variant module the tree ships, so one a release adds is covered too
@@ -92,6 +103,7 @@ is($B->can('_clone_vlabel')->(), 'unknown', 'the summary label is unknown until 
     like($w, qr/carried bind\/device mount\(s\) mp0, mp3/, 'warning: names the carried mounts');
     like($w, qr/SAME host path/,                          'warning: flags shared host paths');
     like($w, qr/#### BINDSNAP-EXCLUDE: mp0 mp3/,           'warning: suggests the exact exclude directive');
+    like($w, qr/before taking a snapshot.*--snapname/s,     'warning: a --snapname clone needs the directive before the snapshot');
     is($B->can('_clone_carry_warning')->([]), '',         'warning: empty when nothing was carried');
 }
 

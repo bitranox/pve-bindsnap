@@ -79,8 +79,8 @@ for my $var (sort keys %variants) {
         is(sha256_hex($fixture), $rows{$ver}{ssum}, "$var: fixture is the clone_vm slice of $ver");
     }
     my @fences = $text =~ /^# <<< BINDSNAP (\S+)$/mg;
-    is_deeply([sort @fences], [sort qw(wrap-first wrap-last declare excludes carry summary)],
-              "$var: exactly the six expected hunks");
+    is_deeply([sort @fences], [sort qw(wrap-first wrap-last declare excludes leftout carry summary)],
+              "$var: exactly the seven expected hunks");
     my ($region) = $text =~ /^# BINDSNAP-UPSTREAM-BEGIN\n(.*?)^# BINDSNAP-UPSTREAM-END\n/ms;
     unlike(($region // '') =~ s/^# <<< BINDSNAP.*?^# >>> BINDSNAP\n//msgr, qr/BindSnap/,
            "$var: no overlay reference outside the fences");

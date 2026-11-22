@@ -186,4 +186,20 @@ refused('a new body missing a hunk anchor', ['9.9.4', lxc_pm('9.9.4', $newbody =
     like($err, qr/--add and --src/, '--add with --src: says why');
 }
 
+# A hunk change re-renders every variant from the committed fixtures: a bare run writes the
+# variants and nothing else, and --check then agrees with the result.
+{
+    my $d     = fresh_tree();
+    my %pre   = %{ tree_state($d) };
+    my $stale = "$VAR/v6_1_7.pm";
+    spew("$d/$stale", $pre{$stale} . "# stale\n");
+    my ($rc, $out, $err) = run_gen($d);
+    is($rc, 0, 'bare run: exit 0') or diag $err;
+    like($out, qr{^wrote \Q$d/$stale\E$}m, 'bare run: names the variant it rewrote');
+    is_deeply(tree_state($d), \%pre, 'bare run: the variant is rendered again, fixtures untouched');
+    my ($crc, $cout) = run_gen($d, '--check');
+    is($crc, 0, 'bare run: --check agrees afterwards');
+    like($cout, qr/^OK: \d+ variant\(s\) match their fixtures$/m, 'bare run: --check says OK');
+}
+
 done_testing();

@@ -75,7 +75,7 @@ interfaces). The table maps each hash to a label and a variant:
 ```perl
 my %KNOWN_GOOD_CLONE_CHECKSUMS = (
     '8408885ec50809460948d25a9121be387ec7a01ef58c7a377403a01acf525198'
-        => { label => '6.1.7, 6.1.9, 6.1.10, 6.1.11', variant => 'v6_1_7' },
+        => { label => '6.1.7, 6.1.8, 6.1.9, 6.1.10, 6.1.11', variant => 'v6_1_7' },
 );
 ```
 

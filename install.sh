@@ -167,15 +167,21 @@ INSTALL_OK=1 # verified good -> disarm rollback; from here we only restart daemo
 echo ">> restarting ${SERVICES[*]}"
 systemctl restart "${SERVICES[@]}"
 
-echo ">> activation line from the journal:"
-line=""
+# The snapshot overlay and the clone override each log their own line; show the newest of
+# each, since the journal of this boot also holds the lines of earlier daemon starts.
+echo ">> activation lines from the journal:"
+snap_line=""
+clone_line=""
 for _ in 1 2 3 4 5; do
-    line=$(journalctl -u pvedaemon -b --no-pager 2>/dev/null | grep -E 'pve-bindsnap:' | tail -n1 || true)
-    [ -n "$line" ] && break
+    lines=$(journalctl -u pvedaemon -b --no-pager 2>/dev/null | grep -E 'pve-bindsnap:' || true)
+    snap_line=$(printf '%s\n' "$lines" | grep -v 'pve-bindsnap: clone' | tail -n1 || true)
+    clone_line=$(printf '%s\n' "$lines" | grep 'pve-bindsnap: clone' | tail -n1 || true)
+    [ -n "$snap_line" ] && [ -n "$clone_line" ] && break
     sleep 1
 done
-if [ -n "$line" ]; then
-    echo "   $line"
+if [ -n "$snap_line$clone_line" ]; then
+    [ -n "$snap_line" ] && echo "   $snap_line"
+    [ -n "$clone_line" ] && echo "   $clone_line"
 else
     echo "   (none yet -- check: journalctl -u pvedaemon -b | grep pve-bindsnap)"
 fi
@@ -183,3 +189,5 @@ echo
 echo "A 'checksum-validated' line means this pve-container is in the known-good table."
 echo "An 'in TEST mode ... is untested' line means it is not: bind-mount CT snapshots are"
 echo "refused unless the snapshot name/Description contains BINDSNAP-UNSUPPORTED (other CTs are unaffected)."
+echo "A 'clone overlay loaded but NOT active' line means clone stays stock on this build:"
+echo "a bind-mount CT clone is refused until a release lists the build."

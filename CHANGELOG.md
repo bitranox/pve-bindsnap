@@ -18,6 +18,56 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.10.0] - 2026-11-22
+
+### Security
+
+- A clone carries a bind/device mount only for `root@pam`. Up to 1.9.2 any user with
+  `VM.Clone` on a container with a bind mount could clone it and get a container of their own
+  with that host path mounted, although Proxmox lets only `root@pam` set a bind/device
+  mountpoint. Any other user's clone is now refused with `unable to clone mountpoint 'mp0'
+  (type bind) -- carrying a bind/device mount to a clone is only allowed for root@pam`. Clone
+  as `root@pam` (`pct clone` on the node always runs as `root@pam`), or name the mount in
+  `BINDSNAP-EXCLUDE` in the source's Notes (for a `--snapname` clone: in the Notes before the
+  snapshot was taken, or in the description given when taking it); an exclusion is honoured whoever
+  clones, and the clone then leaves the mount out. The test is the one Proxmox applies when
+  setting a bind mount, so a `root@pam` API token counts as another user. Node operators
+  whose non-root users have `VM.Clone` on bind-mount containers should update.
+- A container whose `rootfs` is a bind/device mount is no longer cloned, not even by
+  `root@pam`: it keeps Proxmox's own refusal `unable to clone mountpoint 'rootfs' (type bind)`.
+  Up to 1.9.2 the clone got the same host directory as its rootfs, so the two containers
+  shared one root filesystem.
+
+Both found and reported by sasha-id in
+[PR #2](https://github.com/bitranox/pve-bindsnap/pull/2); confirmed on a pve-container 6.1.26
+test node before the fix and refused after it.
+
+### Fixed
+
+- Delete and rollback of a snapshot of a container without bind/device mounts reach every
+  volume again, even when the snapshot's description carries a `BINDSNAP-EXCLUDE` line. Such a
+  snapshot is taken stock with every volume, but the line was still applied, so rollback left
+  the named volume unrewound and delete left its storage snapshot behind. A snapshot's
+  directive now counts only when that snapshot's config has a bind/device mount; the task-log
+  summary follows the same rule.
+- A `--snapname` clone of a bind-mount container leaves out a managed `mpN` that the snapshot
+  excluded, instead of asking the storage to clone a volume snapshot that was never taken. The
+  summary names it and the task ends with `TASK WARNINGS`. A clone of the container itself
+  (no `--snapname`) still clones every managed volume.
+
+Both reported by sasha-id in [PR #2](https://github.com/bitranox/pve-bindsnap/pull/2).
+
+### Changed
+
+- The carry rule lives in one place, `_clone_disposition`, which every per-build `clone_vm`
+  variant now calls instead of deciding on its own.
+- The clone banner in the journal (and the activation lines `install.sh` prints) states the
+  rule: bind/device `mpN` carried for `root@pam` only, a bind/device rootfs never cloned.
+  `install.sh` now shows the newest snapshot and clone line instead of only the last line.
+- `tools/gen-clone-variants.pl` run with no arguments renders the variants again from the
+  committed fixtures, which a change to a hunk needs; before, only `--src` with every upstream
+  build downloaded could rewrite them.
+
 ## [1.9.2] - 2026-11-21
 
 ### Changed

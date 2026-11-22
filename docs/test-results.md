@@ -6,7 +6,7 @@ the latest run; the test plan that produces it is in [testing.md](testing.md).
 ## Off the node
 
 `perl -c` clean (both `BindSnap.pm` and `API2/LXC.wrapper.pm`), `prove -I lib t/` =
-**225 tests pass**, `shellcheck` and `shfmt` clean.
+**648 tests pass**, `shellcheck` and `shfmt` clean.
 The unit tests cover the pure logic: the checksum combine (it reproduces both the
 documented `sha256sum` pipeline and the real value from a node), the `BINDSNAP-FORCE-RUNNING`/
 `BINDSNAP-UNSUPPORTED` matching (case-sensitive, underscore-glue tolerant, read from the
@@ -353,6 +353,35 @@ Run on 2026-11-20 by the automated vetting job: one nested PVE node per build, r
 | 6.1.26        | 6.0.12                   | 9.2.30 | deb               | 46/46                                             |
 | 6.1.26        | 6.0.12                   | 9.2.30 | script            | 28/28                                             |
 | 6.1.26        | 6.0.12                   | 9.2.30 | negative          | passed: origin/main refuses the build as untested |
+
+## 1.10.0: the clone carry gate
+
+Run on 2026-11-22 on the pve-container 6.1.26 node (libpve-guest-common-perl 6.0.12, PVE
+9.2.30), reset to its clean state before each arm. CT 100 has `mp0`, a bind mount. The other user
+holds `VM.Clone`, `VM.Allocate`, `VM.Audit`, `VM.Config.Disk`, `Datastore.AllocateSpace`,
+`Datastore.Audit` and `SDN.Use` on `/`, and acts through an API token. CT 103 is a copy of CT 100
+whose rootfs is a host directory.
+
+| case                                              | stock (no overlay)                        | 1.9.2                                  | 1.10.0                                               |
+|---------------------------------------------------|-------------------------------------------|----------------------------------------|------------------------------------------------------|
+| other user sets a bind `mpN` directly             | refused: only allowed for root@pam        | refused: only allowed for root@pam     | not run                                              |
+| other user clones CT 100                          | refused: unable to clone mountpoint 'mp0' | clone created, `mp0` carried           | refused: only allowed for root@pam, no clone created |
+| other user clones CT 100, `BINDSNAP-EXCLUDE: mp0` | not run                                   | clone created without `mp0`            | clone created without `mp0`                          |
+| `root@pam` clones CT 100 (`pct clone`)            | not run                                   | clone created, `mp0` carried           | clone created, `mp0` carried                         |
+| `root@pam` clones CT 103 (bind rootfs)            | not run                                   | clone created, sharing CT 103's rootfs | refused: unable to clone mountpoint 'rootfs'         |
+
+The 1.10.0 column is the released build; the matrix was run again on it after the two fixes
+below changed every clone variant, with the same results.
+
+## 1.10.0: two snapshot-exclude fixes
+
+Same node and day, each arm from the clean state, comparing the 1.10.0 build before these fixes
+with the released one. CT 100 got a managed `mp1` (`local-zfs`) beside its bind `mp0`.
+
+| case                                                                                                           | before the fixes                                                                            | 1.10.0                                                                     |
+|----------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
+| Notes `BINDSNAP-EXCLUDE: mp1`, snapshot `pre` (no `mp1@pre` taken), `pct clone 100 201 --snapname pre`         | clone failed: `volume subvol-100-disk-1@pre does not exist on storage local-zfs`, no CT 201 | clone created with `rootfs` and `mp0`, `mp1` left out, two `WARN` lines    |
+| `mp0` removed (no bind mount), snapshot `plain1` with description `BINDSNAP-EXCLUDE: mp1` (`mp1@plain1` taken) | rollback left `mp1` unrewound; delete left `mp1@plain1` behind                              | rollback rewound `rootfs` and `mp1`; delete removed both storage snapshots |
 
 ## Aftermath
 

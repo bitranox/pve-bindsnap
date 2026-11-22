@@ -83,8 +83,9 @@ sha256sum /usr/share/perl5/PVE/API2/LXC.pm | awk '{print $1}' | sha256sum | awk 
 
 ### Supported (tested-good)
 
-On these builds, `pct clone` carries bind/device mountpoints to the new CT (and honours
-`BINDSNAP-EXCLUDE`).
+On these builds, `pct clone` carries bind/device mountpoints to the new CT for `root@pam`
+(and honours `BINDSNAP-EXCLUDE` for every caller); a CT whose rootfs is a bind/device mount
+is never cloned.
 
 | pve-container                       | combined sha256                                                    | notes                                                                                                     |
 |-------------------------------------|--------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|

@@ -7,6 +7,8 @@
 # marked hunks. Upstream changed clone_vm between pve-container builds, so one copy
 # cannot match every build: this tool produces one variant per DISTINCT upstream body.
 #
+#   tools/gen-clone-variants.pl                   render the variants again from the
+#                                                 committed fixtures (after a hunk change)
 #   tools/gen-clone-variants.pl --src DIR         slice every build in DIR, write the
 #                                                 fixtures, builds.tsv and the variants
 #   tools/gen-clone-variants.pl --check           regenerate the variants from the
@@ -63,9 +65,10 @@ my @HUNKS = (
         anchor => '        my $running;',
         mode   => 'after',
         new    => [
-            '        # pve-bindsnap: bind/device mounts carried/excluded, collected in the loop',
-            '        # below and reported by $realcmd; outer scope so the worker closure sees them.',
-            '        my (@clone_carried, @clone_excluded);',
+            '        # pve-bindsnap: bind/device mounts carried/excluded and managed volumes left',
+            '        # out of a --snapname clone, collected in the loop below and reported by',
+            '        # $realcmd; outer scope so the worker closure sees them.',
+            '        my (@clone_carried, @clone_excluded, @clone_left_out);',
         ],
     },
     {
@@ -81,16 +84,42 @@ my @HUNKS = (
         ],
     },
     {
+        name   => 'leftout',
+        anchor => q[                    if ($mp->{type} eq 'volume') {],
+        mode   => 'after',
+        new    => [
+            '                        # pve-bindsnap: a --snapname clone leaves out a managed volume',
+            '                        # the snapshot excluded; it has no snapshot data to clone from.',
+            '                        if (PVE::LXC::BindSnap::_snap_left_out($opt, $src_conf, $snapname,',
+            '                            $clone_excl))',
+            '                        {',
+            '                            push @clone_left_out, $opt;',
+            '                            next;',
+            '                        }',
+        ],
+    },
+    {
         name   => 'carry',
         anchor => '                        # TODO: allow bind mounts?',
         also   => [q{                        die "unable to clone mountpoint '$opt' (type $mp->{type})\n";}],
         mode   => 'replace',
         new    => [
             '                        # pve-bindsnap: a bind/device mountpoint has no managed volume',
-            '                        # to clone. Carry the entry to the new CT unchanged (same host',
-            '                        # path/device) unless BINDSNAP-EXCLUDE drops it. It is NOT added',
-            '                        # to %$mountpoints, so the worker never copies a volume for it.',
-            '                        if ($clone_excl->{$opt}) { push @clone_excluded, $opt; next; }',
+            '                        # to clone. _clone_disposition decides: drop it (BINDSNAP-EXCLUDE),',
+            "                        # keep upstream's refusal (a bind/device rootfs, or any caller but",
+            '                        # root@pam, the one user Proxmox lets set such a mountpoint), or',
+            '                        # carry it unchanged (same host path/device). A carried entry is',
+            '                        # NOT added to %$mountpoints, so the worker copies no volume for it.',
+            q{                        my $disp = PVE::LXC::BindSnap::_clone_disposition($opt, $mp->{type},},
+            q{                            $clone_excl, root => ($authuser eq 'root@pam' ? 1 : 0));},
+            q{                        if ($disp eq 'exclude') { push @clone_excluded, $opt; next; }},
+            q{                        die "unable to clone mountpoint '$opt' (type $mp->{type})\n"},
+            q{                            if $disp eq 'deny-rootfs';},
+            q{                        die "unable to clone mountpoint '$opt' (type $mp->{type}) -- carrying a "},
+            q{                            . "bind/device mount to a clone is only allowed for root\@pam\n"},
+            q{                            if $disp eq 'deny-not-root';},
+            q{                        die "pve-bindsnap: unexpected clone disposition '$disp' for $opt\n"},
+            q{                            if $disp ne 'carry';},
             '                        push @clone_carried, $opt;',
             '                        $newconf->{$opt} = $value;',
         ],
@@ -109,10 +138,14 @@ my @HUNKS = (
             '                    vlabel => PVE::LXC::BindSnap::_clone_vlabel(),',
             '                    cloned => [sort keys %$mountpoints],',
             '                    carried => \@clone_carried, excluded => \@clone_excluded,',
+            '                    left_out => \@clone_left_out,',
             '                );',
             '                PVE::LXC::BindSnap::_task_warn(',
             '                    PVE::LXC::BindSnap::_clone_carry_warning(\@clone_carried))',
             '                    if @clone_carried;',
+            '                PVE::LXC::BindSnap::_task_warn(',
+            '                    PVE::LXC::BindSnap::_clone_left_out_warning(\@clone_left_out))',
+            '                    if @clone_left_out;',
             '                1;',
             '            };',
             '',
@@ -373,7 +406,6 @@ if (defined $src || defined $add) {
     my $up = defined $src ? stage_upstream($src) : merge_upstream($add);
     ($fixtures, $tsv, $notes) = ($up->{fixtures}, $up->{tsv}, $up->{notes});
 } else {
-    die "without --src or --add only --check is meaningful\n" if !$check;
     ($fixtures, $tsv) = (committed_fixtures(), slurp("$FIXTURES/builds.tsv"));
 }
 
@@ -389,7 +421,8 @@ print "$_\n" for @{ $notes // [] };
 
 if ($check) {
     if (@drift) {
-        print STDERR "DRIFT (regenerate with tools/gen-clone-variants.pl --src DIR):\n";
+        print STDERR "DRIFT (render the variants again with tools/gen-clone-variants.pl; "
+            . "a changed upstream needs --src DIR or --add DIR):\n";
         print STDERR "  $_\n" for @drift;
         exit 1;
     }

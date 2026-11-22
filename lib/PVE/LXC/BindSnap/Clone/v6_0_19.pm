@@ -153,9 +153,10 @@ return {
         my $vollist = [];
         my $running;
 # <<< BINDSNAP declare
-        # pve-bindsnap: bind/device mounts carried/excluded, collected in the loop
-        # below and reported by $realcmd; outer scope so the worker closure sees them.
-        my (@clone_carried, @clone_excluded);
+        # pve-bindsnap: bind/device mounts carried/excluded and managed volumes left
+        # out of a --snapname clone, collected in the loop below and reported by
+        # $realcmd; outer scope so the worker closure sees them.
+        my (@clone_carried, @clone_excluded, @clone_left_out);
 # >>> BINDSNAP
 
         my $lock_and_reload = sub {
@@ -217,6 +218,16 @@ return {
                     my $mp = PVE::LXC::Config->parse_volume($opt, $value);
 
                     if ($mp->{type} eq 'volume') {
+# <<< BINDSNAP leftout
+                        # pve-bindsnap: a --snapname clone leaves out a managed volume
+                        # the snapshot excluded; it has no snapshot data to clone from.
+                        if (PVE::LXC::BindSnap::_snap_left_out($opt, $src_conf, $snapname,
+                            $clone_excl))
+                        {
+                            push @clone_left_out, $opt;
+                            next;
+                        }
+# >>> BINDSNAP
                         my $volid = $mp->{volume};
 
                         my ($sid, $volname) = PVE::Storage::parse_volume_id($volid);
@@ -256,10 +267,21 @@ return {
 #|                         # TODO: allow bind mounts?
 #|                         die "unable to clone mountpoint '$opt' (type $mp->{type})\n";
                         # pve-bindsnap: a bind/device mountpoint has no managed volume
-                        # to clone. Carry the entry to the new CT unchanged (same host
-                        # path/device) unless BINDSNAP-EXCLUDE drops it. It is NOT added
-                        # to %$mountpoints, so the worker never copies a volume for it.
-                        if ($clone_excl->{$opt}) { push @clone_excluded, $opt; next; }
+                        # to clone. _clone_disposition decides: drop it (BINDSNAP-EXCLUDE),
+                        # keep upstream's refusal (a bind/device rootfs, or any caller but
+                        # root@pam, the one user Proxmox lets set such a mountpoint), or
+                        # carry it unchanged (same host path/device). A carried entry is
+                        # NOT added to %$mountpoints, so the worker copies no volume for it.
+                        my $disp = PVE::LXC::BindSnap::_clone_disposition($opt, $mp->{type},
+                            $clone_excl, root => ($authuser eq 'root@pam' ? 1 : 0));
+                        if ($disp eq 'exclude') { push @clone_excluded, $opt; next; }
+                        die "unable to clone mountpoint '$opt' (type $mp->{type})\n"
+                            if $disp eq 'deny-rootfs';
+                        die "unable to clone mountpoint '$opt' (type $mp->{type}) -- carrying a "
+                            . "bind/device mount to a clone is only allowed for root\@pam\n"
+                            if $disp eq 'deny-not-root';
+                        die "pve-bindsnap: unexpected clone disposition '$disp' for $opt\n"
+                            if $disp ne 'carry';
                         push @clone_carried, $opt;
                         $newconf->{$opt} = $value;
 # >>> BINDSNAP
@@ -344,10 +366,14 @@ return {
                     vlabel => PVE::LXC::BindSnap::_clone_vlabel(),
                     cloned => [sort keys %$mountpoints],
                     carried => \@clone_carried, excluded => \@clone_excluded,
+                    left_out => \@clone_left_out,
                 );
                 PVE::LXC::BindSnap::_task_warn(
                     PVE::LXC::BindSnap::_clone_carry_warning(\@clone_carried))
                     if @clone_carried;
+                PVE::LXC::BindSnap::_task_warn(
+                    PVE::LXC::BindSnap::_clone_left_out_warning(\@clone_left_out))
+                    if @clone_left_out;
                 1;
             };
 

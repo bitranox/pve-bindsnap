@@ -66,13 +66,22 @@ leaves the excluded ones as they are.
 
 `BINDSNAP-EXCLUDE` takes effect for **bind-mount containers**, the ones the overlay engages
 for. A plain container with no bind/device mounts snapshots stock and is left untouched,
-so a directive on it has no effect. Bind and device mounts are always skipped regardless;
+so a directive on it has no effect: not at snapshot time, and not when that snapshot is later
+deleted, rolled back or cloned from, because those check the snapshot's own config for a
+bind/device mount before they read its directive. Bind and device mounts are always skipped regardless;
 `BINDSNAP-EXCLUDE` is only about *managed volumes*.
 
 Naming a bind or device mount in the directive is harmless: a non-`volume` mount is
 dropped by its type *before* the exclude set is consulted, so the directive simply has
-nothing extra to do, and a `devN` key isn't parsed into the set at all. There is no way
-for an exclusion to break create, delete, or rollback.
+nothing extra to do, and a `devN` key isn't parsed into the set at all.
+
+Leave the `BINDSNAP-EXCLUDE` line of an existing snapshot's description alone. Delete and
+rollback read it to know which volumes the snapshot holds; with it removed they treat the
+excluded volume as part of the snapshot and ask the storage for a volume snapshot that was
+never taken.
+
+Only the first `BINDSNAP-EXCLUDE` line of a description counts, and `=` works in place of the
+colon (`#### BINDSNAP-EXCLUDE= mp1`).
 
 ## In a clone (different category)
 
@@ -81,9 +90,14 @@ mountpoint, because clone is the mirror image of snapshot:
 
 - In a **snapshot**, bind/device mounts are always skipped by type, and `BINDSNAP-EXCLUDE`
   additionally drops named **managed volumes**.
-- In a **clone**, managed volumes are always cloned (there is a real volume to copy), bind/
-  device mounts are **carried** to the clone by default, and `BINDSNAP-EXCLUDE` drops named
-  **bind/device** mounts so the clone doesn't inherit them.
+- In a **clone**, managed volumes are cloned (there is a real volume to copy), bind/device
+  `mpN` mounts are **carried** to the clone by default, and `BINDSNAP-EXCLUDE` drops named
+  **bind/device** mounts so the clone doesn't inherit them. Carrying one needs `root@pam`
+  (a `root@pam` API token counts as another user); any other user's clone is refused unless
+  every bind/device mount is excluded, since dropping a mount needs no root. A `devN`
+  passthrough line is copied by Proxmox's own clone code for any user and cannot be excluded.
+- A **`--snapname` clone** leaves out a managed volume that snapshot excluded: it has no
+  snapshot data to clone from. The summary names it and the task ends with `TASK WARNINGS`.
 
 So `#### BINDSNAP-EXCLUDE: mp0` in a container's Notes means "don't capture mp0 in snapshots"
 if mp0 is a managed volume, and "don't carry mp0 into clones" if mp0 is a bind mount, the
@@ -98,12 +112,13 @@ clone that carries any bind/device mount also raises a `TASK WARNINGS` naming th
 
 ## What you see
 
-Each snapshot, rollback, delete and clone writes a one-line summary to the task log (GUI
+Each snapshot, rollback, delete and clone writes a short summary to the task log (GUI
 task "Output", or `pct`'s output). For a snapshot, e.g. `kept rootfs, mp2; excluded mp1
 (BINDSNAP-EXCLUDE); skipped mp3 (bind/device)`; for a clone, e.g. `cloned rootfs; carried
 mp0 (bind/device, same host path as source); excluded mp1 (BINDSNAP-EXCLUDE)`, so you can
-confirm what went in and what was left out. It's task-log only and never clutters an
-interactive `pct`.
+confirm what went in and what was left out. The snapshot, rollback and delete summaries are
+task-log only and never clutter an interactive `pct`; the clone summary also prints on an
+interactive `pct clone`.
 
 ## Why it's built this way
 
