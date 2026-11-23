@@ -18,6 +18,17 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [Unreleased]
+
+### Changed
+
+- `tools/build-apt-repo.sh` with no arguments indexes only the deb of the checkout's own
+  version (`$VERSION`, or `PKG_VERSION` as `tools/build-deb.sh` reads it) and names the other
+  debs in `dist/` it leaves out; with none for that version it stops. It used to index every
+  deb in `dist/`, so an apt index built after an earlier release could name a deb the new
+  release does not carry. Explicit arguments are indexed as given.
+- The tests check that README's release line names the module's version.
+
 ## [1.10.1] - 2026-11-22
 
 The remaining items sasha-id raised in PR #2.

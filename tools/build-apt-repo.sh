@@ -11,7 +11,8 @@
 # which install-apt.sh configures. Signs with the archive key, read from
 # BINDSNAP_APT_KEY_FILE (default ~/.credentials/pve-bindsnap-apt-signing.key) into a
 # throwaway GNUPGHOME; the private key is never in the repository.
-#   tools/build-apt-repo.sh                       every dist/*.deb
+#   tools/build-apt-repo.sh                       dist/pve-bindsnap_<VERSION>_all.deb only
+#   PKG_VERSION=1.4.0~e2e1 tools/build-apt-repo.sh  (VERSION as tools/build-deb.sh resolves it)
 #   tools/build-apt-repo.sh dist/pve-bindsnap_1.4.0_all.deb
 #   APT_DIR=/some/dir tools/build-apt-repo.sh ...
 # =====================================================================
@@ -22,17 +23,40 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KEY_FILE="${BINDSNAP_APT_KEY_FILE:-$HOME/.credentials/pve-bindsnap-apt-signing.key}"
 PUBLIC_KEY="$ROOT/apt/pve-bindsnap-archive-keyring.asc"
 APT_DIR="${APT_DIR:-$ROOT/dist/apt}"
+MODULE="$ROOT/lib/PVE/LXC/BindSnap.pm"
+
+# The same lookup as tools/build-deb.sh (t/13 keeps the two copies identical).
+module_version() {
+    sed -n "s/^our \$VERSION = '\([^']*\)';\$/\1/p" "$MODULE"
+}
+
+# With no arguments, index only the deb this checkout builds. dist/ keeps the debs of earlier
+# builds, and a release carries only the new one: an index naming an old deb would send apt
+# to a file the release does not have.
+default_debs() {
+    local version want other
+    version="${PKG_VERSION:-$(module_version)}"
+    [ -n "$version" ] || {
+        echo "!! no version (PKG_VERSION unset and none found in $MODULE)" >&2
+        return 1
+    }
+    want="$ROOT/dist/pve-bindsnap_${version}_all.deb"
+    [ -f "$want" ] || {
+        echo "!! $want not found (run tools/build-deb.sh)" >&2
+        return 1
+    }
+    shopt -s nullglob
+    for other in "$ROOT"/dist/pve-bindsnap_*_all.deb; do
+        [ "$other" = "$want" ] || echo "   ignoring $other (not version $version)" >&2
+    done
+    shopt -u nullglob
+    debs=("$want")
+}
 
 debs=("$@")
 if [ ${#debs[@]} -eq 0 ]; then
-    shopt -s nullglob
-    debs=("$ROOT"/dist/pve-bindsnap_*_all.deb)
-    shopt -u nullglob
+    default_debs || exit 1
 fi
-[ ${#debs[@]} -gt 0 ] || {
-    echo "!! no packages given and none in $ROOT/dist (run tools/build-deb.sh)" >&2
-    exit 1
-}
 [ -r "$KEY_FILE" ] || {
     echo "!! signing key not readable: $KEY_FILE" >&2
     exit 1
