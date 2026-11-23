@@ -24,6 +24,11 @@ jobs:
           tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
           mv "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" "$RUNNER_TEMP/shellcheck"
 
+      # t/22 runs tools/build-apt-repo.sh, which needs apt-ftparchive (apt-utils); the
+      # runner image does not ship it, and t/22 fails rather than skips under CI.
+      - name: Install apt-utils
+        run: sudo apt-get install -y --no-install-recommends apt-utils
+
       - name: Tool versions
         run: |
           perl --version | sed -n '2p'

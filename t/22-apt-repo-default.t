@@ -14,8 +14,12 @@ use File::Copy qw(copy);
 
 my $REPO = "$FindBin::Bin/..";
 
+# A developer box may lack these tools and skips; CI installs them, so there a missing tool is
+# a failure, never a silent skip of the check the release depends on.
 for my $tool (qw(gpg gpgv dpkg-deb dpkg-scanpackages apt-ftparchive)) {
-    plan skip_all => "$tool not installed" if system("command -v $tool >/dev/null 2>&1") != 0;
+    next if system("command -v $tool >/dev/null 2>&1") == 0;
+    BAIL_OUT("$tool not installed (CI must provide it)") if $ENV{CI};
+    plan skip_all => "$tool not installed";
 }
 
 sub slurp {
