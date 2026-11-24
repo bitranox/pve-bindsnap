@@ -1,8 +1,10 @@
 #!/usr/bin/perl
 # One version for everything shipped: the plugin manifest's "version", the version
 # tools/build-deb.sh stamps into the .deb, and the release line at the top of README.md must
-# all equal BindSnap.pm's $VERSION. tools/build-apt-repo.sh reads the version with a copy of
-# build-deb.sh's module_version(), kept identical here.
+# all equal BindSnap.pm's $VERSION, and so must the module's banner line `# pve-bindsnap ... (X.Y.Z)`:
+# the auto-vet's release bump rewrites that line and refuses a module whose banner names another
+# version. tools/build-apt-repo.sh reads the version with a copy of build-deb.sh's
+# module_version(), kept identical here.
 use strict;
 use warnings;
 use Test::More;
@@ -48,6 +50,12 @@ sub readme_releases {
     return slurp("$root/$RDME") =~ /^> Release (\d+\.\d+\.\d+)\./mg;
 }
 
+# The X.Y.Z of every banner line `# pve-bindsnap   (X.Y.Z)` in tree $root's module.
+sub banner_versions {
+    my ($root) = @_;
+    return slurp("$root/$MOD") =~ /^# pve-bindsnap\s+\((\d+\.\d+\.\d+)\)$/mg;
+}
+
 sub module_version_fn {
     my ($rel) = @_;
     return join("\n", grep { /^module_version\(\) \{$/ .. /^\}$/ } split /\n/, slurp("$REPO/$rel"));
@@ -58,6 +66,7 @@ like($mod, qr/^\d+\.\d+\.\d+$/, "BindSnap.pm \$VERSION is X.Y.Z ($mod)");
 is($plug, $mod, "$PLUG version equals \$VERSION");
 is($deb,  $mod, "$DEB stamps the .deb with \$VERSION");
 is_deeply([readme_releases($REPO)], [$mod], "$RDME has one release line, naming \$VERSION");
+is_deeply([banner_versions($REPO)], [$mod], "$MOD has one banner line, naming \$VERSION");
 ok(length module_version_fn($APT), "$APT has a module_version()");
 is(module_version_fn($APT), module_version_fn($DEB), "$APT reads the version as $DEB does");
 
@@ -82,6 +91,13 @@ is(module_version_fn($APT), module_version_fn($DEB), "$APT reads the version as 
     print {$fh} $r;
     close $fh;
     isnt(join(',', readme_releases($t)), $m2, 'control: a stale README release line is told apart from $VERSION');
+
+    my $b = slurp("$t/$MOD");
+    $b =~ s/^(# pve-bindsnap\s+)\(\d+\.\d+\.\d+\)$/${1}(0.0.1)/m or die 'no banner line in BindSnap.pm';
+    open($fh, '>:raw', "$t/$MOD") or die $!;
+    print {$fh} $b;
+    close $fh;
+    isnt(join(',', banner_versions($t)), $m2, 'control: a stale banner line is told apart from $VERSION');
 }
 
 done_testing();
