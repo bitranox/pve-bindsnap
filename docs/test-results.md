@@ -394,6 +394,17 @@ Same node, 2026-11-22, each arm from the clean state, comparing the released 1.1
 | snapshot `s1` excludes `mp1` in its own description, Notes do not, `pct rollback 100 s1`                                | no `unusedN` names `mp1`'s volume                                                                                        | no `unusedN` names `mp1`'s volume                           |
 | a taint-only failure planted in the overlay: plain `perl -e` load, `perl -T` load, then `dpkg-reconfigure pve-bindsnap` | plain load reports the overlay applied, `-T` load refuses it; reconfigure exits 0 and prints both "overlay active" lines | reconfigure exits 1 and prints perl's error naming the line |
 
+## 1.11.0: pve-container 6.1.27
+
+Run on 2026-11-24 by the automated vetting job: one nested PVE node per build, reset to its clean state before and after every scenario. The negative control runs the previous release's module on the new build, which must refuse it as untested.
+
+| pve-container | libpve-guest-common-perl | PVE    | scenario          | result                                            |
+|---------------|--------------------------|--------|-------------------|---------------------------------------------------|
+| 6.1.27        | 6.0.15                   | 9.2.38 | upgrade to 6.1.27 | 25/25                                             |
+| 6.1.27        | 6.0.15                   | 9.2.38 | deb               | 46/46                                             |
+| 6.1.27        | 6.0.15                   | 9.2.38 | script            | 28/28                                             |
+| 6.1.27        | 6.0.15                   | 9.2.38 | negative          | passed: origin/main refuses the build as untested |
+
 ## Aftermath
 
 The test CT was restored to its original config (rootfs only, original Notes, no test
