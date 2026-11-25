@@ -405,6 +405,17 @@ Run on 2026-11-24 by the automated vetting job: one nested PVE node per build, r
 | 6.1.27        | 6.0.15                   | 9.2.38 | script            | 28/28                                             |
 | 6.1.27        | 6.0.15                   | 9.2.38 | negative          | passed: origin/main refuses the build as untested |
 
+## 1.12.0: pve-container 6.1.28
+
+Run on 2026-11-25 by the automated vetting job: one nested PVE node per build, reset to its clean state before and after every scenario. The negative control runs the previous release's module on the new build, which must refuse it as untested.
+
+| pve-container | libpve-guest-common-perl | PVE    | scenario          | result                                            |
+|---------------|--------------------------|--------|-------------------|---------------------------------------------------|
+| 6.1.28        | 6.0.15                   | 9.2.38 | upgrade to 6.1.28 | 25/25                                             |
+| 6.1.28        | 6.0.15                   | 9.2.38 | deb               | 46/46                                             |
+| 6.1.28        | 6.0.15                   | 9.2.38 | script            | 28/28                                             |
+| 6.1.28        | 6.0.15                   | 9.2.38 | negative          | passed: origin/main refuses the build as untested |
+
 ## Aftermath
 
 The test CT was restored to its original config (rootfs only, original Notes, no test

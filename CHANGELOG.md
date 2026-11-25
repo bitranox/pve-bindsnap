@@ -18,6 +18,12 @@ behaviour, and the divert/wrapper layout. For a version `MAJOR.MINOR.PATCH`:
 - `PATCH` for backward-compatible fixes, such as a corrected message, a documentation fix,
   an installer or packaging fix, or a build added to the known-bad deny-list.
 
+## [1.12.0] - 2026-11-25
+
+### Added
+
+- pve-container 6.1.28 with libpve-guest-common-perl 6.0.15 is vetted: snapshot checksum `3c141d55950fdc319de4000a39077a8e31205a72641553d4e99493fdebc3689a`, clone checksum `fc4aac5335b399d4513c2ab21024ea6413fd3f26f13e65794b21d83db7f4b3a5` (clone variant `v6_1_25`), E2E-tested on PVE 9.2.38.
+
 ## [1.11.0] - 2026-11-24
 
 ### Added
