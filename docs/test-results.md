@@ -416,6 +416,16 @@ Run on 2026-11-25 by the automated vetting job: one nested PVE node per build, r
 | 6.1.28        | 6.0.15                   | 9.2.38 | script            | 28/28                                             |
 | 6.1.28        | 6.0.15                   | 9.2.38 | negative          | passed: origin/main refuses the build as untested |
 
+## 1.12.0: pve-container 6.1.28 on PVE 9.3.1
+
+Run on 2026-11-26 on the first nested node built from the Proxmox VE 9.3-1 ISO (pve-manager 9.3.1, kernel 7.0.14-30-pve), reset to its clean state before and after every scenario. The build is the one vetted on 9.2.38 above, so its checksums were already in the tables; this run shows the 1.12.0 release on a 9.3 node.
+
+| pve-container | libpve-guest-common-perl | PVE   | scenario | result |
+|---------------|--------------------------|-------|----------|--------|
+| 6.1.28        | 6.0.15                   | 9.3.1 | deb      | 46/46  |
+| 6.1.28        | 6.0.15                   | 9.3.1 | script   | 28/28  |
+| 6.1.28        | 6.0.15                   | 9.3.1 | migrate  | 28/28  |
+
 ## Aftermath
 
 The test CT was restored to its original config (rootfs only, original Notes, no test
